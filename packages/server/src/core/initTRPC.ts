@@ -1,29 +1,32 @@
-import {
+import type {
   DefaultErrorShape,
-  defaultFormatter,
   ErrorFormatter,
   ErrorFormatterShape,
 } from '../error/formatter';
+import { defaultFormatter } from '../error/formatter';
 import { createFlatProxy } from '../shared/createProxy';
-import {
+import type {
   DataTransformerOptions,
   DefaultDataTransformer,
-  defaultTransformer,
-  getDataTransformer,
 } from '../transformer';
-import { Unwrap } from '../types';
-import {
+import { defaultTransformer, getDataTransformer } from '../transformer';
+import type { Unwrap } from '../types';
+import type {
   CreateRootConfigTypes,
-  isServerDefault,
   RootConfig,
   RootConfigTypes,
   RuntimeConfig,
 } from './internals/config';
+import { isServerDefault } from './internals/config';
 import { mergeRouters } from './internals/mergeRouters';
 import { createBuilder } from './internals/procedureBuilder';
-import { Overwrite, PickFirstDefined, ValidateShape } from './internals/utils';
+import type {
+  Overwrite,
+  PickFirstDefined,
+  ValidateShape,
+} from './internals/utils';
 import { createMiddlewareFactory } from './middleware';
-import { createRouterFactory } from './router';
+import { createCallerFactory, createRouterFactory } from './router';
 
 type PartialRootConfigTypes = Partial<RootConfigTypes>;
 
@@ -37,6 +40,7 @@ type CreateRootConfigTypesFromPartial<TTypes extends PartialRootConfigTypes> =
     transformer: DataTransformerOptions;
   }>;
 
+type ContextCallback = (...args: any[]) => object | Promise<object>;
 /**
  * TODO: This can be improved:
  * - We should be able to chain `.meta()`/`.context()` only once
@@ -45,12 +49,17 @@ type CreateRootConfigTypesFromPartial<TTypes extends PartialRootConfigTypes> =
  */
 
 class TRPCBuilder<TParams extends PartialRootConfigTypes = object> {
-  context<
-    TNewContext extends
-      | RootConfigTypes['ctx']
-      | ((...args: unknown[]) => RootConfigTypes['ctx']),
-  >() {
-    type NextParams = Overwrite<TParams, { ctx: Unwrap<TNewContext> }>;
+  context<TNewContext extends object | ContextCallback>() {
+    type $Context = TNewContext extends ContextCallback
+      ? Unwrap<TNewContext>
+      : TNewContext;
+
+    type NextParams = Overwrite<
+      TParams,
+      {
+        ctx: $Context;
+      }
+    >;
 
     return new TRPCBuilder<NextParams>();
   }
@@ -148,22 +157,31 @@ function createTRPCInner<TParams extends PartialRootConfigTypes>() {
       _config: config,
       /**
        * Builder object for creating procedures
+       * @see https://trpc.io/docs/server/procedures
        */
       procedure: createBuilder<$Config>({
         meta: runtime?.defaultMeta,
       }),
       /**
        * Create reusable middlewares
+       * @see https://trpc.io/docs/server/middlewares
        */
       middleware: createMiddlewareFactory<$Config>(),
       /**
        * Create a router
+       * @see https://trpc.io/docs/server/routers
        */
       router: createRouterFactory<$Config>(config),
       /**
        * Merge Routers
+       * @see https://trpc.io/docs/server/merging-routers
        */
       mergeRouters,
+      /**
+       * Create a server-side caller for a router
+       * @see https://trpc.io/docs/server/server-side-calls
+       */
+      createCallerFactory: createCallerFactory<$Config>(),
     };
   };
 }

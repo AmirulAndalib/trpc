@@ -1,8 +1,10 @@
-import { AnyRouter } from '../../core';
-import { getBatchStreamFormatter, HTTPRequest } from '../../http';
-import { HTTPResponse, ResponseChunk } from '../../http/internals/types';
+import type { AnyRouter } from '../../core';
+import type { HTTPRequest } from '../../http';
+import { getBatchStreamFormatter } from '../../http';
+import type { HTTPResponse, ResponseChunk } from '../../http/internals/types';
 import { resolveHTTPResponse } from '../../http/resolveHTTPResponse';
-import { FetchHandlerOptions } from './types';
+import { toURL } from '../../http/toURL';
+import type { FetchHandlerOptions } from './types';
 
 export type FetchHandlerRequestOptions<TRouter extends AnyRouter> =
   FetchHandlerOptions<TRouter> & {
@@ -26,7 +28,7 @@ export async function fetchRequestHandler<TRouter extends AnyRouter>(
     return opts.createContext?.({ req: opts.req, resHeaders });
   };
 
-  const url = new URL(opts.req.url);
+  const url = toURL(opts.req.url);
 
   const pathname = trimSlashes(url.pathname);
   const endpoint = trimSlashes(opts.endpoint);

@@ -2,10 +2,15 @@ name: Release "@canary"-tagged packages
 
 on:
   push:
-    branches: [main]
+    branches:
+      - 'main'
+    paths:
+      - 'packages/**'
+      - '!packages/**/package.json'
+      - '!packages/test/**'
 
 jobs:
-  canary:
+  publish:
     timeout-minutes: 10
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}

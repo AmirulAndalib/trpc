@@ -1,4 +1,4 @@
-import { TRPC_ERROR_CODE_KEY } from '../rpc/codes';
+import type { TRPC_ERROR_CODE_KEY } from '../rpc/codes';
 import { getCauseFromUnknown } from '../shared/getCauseFromUnknown';
 
 export function getTRPCErrorFromUnknown(cause: unknown): TRPCError {
@@ -45,7 +45,7 @@ export class TRPCError extends Error {
     this.name = 'TRPCError';
 
     if (!this.cause) {
-      // idk why this is needed, but it is
+      // < ES2022 / < Node 16.9.0 compatability
       this.cause = cause;
     }
   }

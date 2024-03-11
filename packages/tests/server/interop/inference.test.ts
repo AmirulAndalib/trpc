@@ -1,6 +1,10 @@
 import * as trpc from '@trpc/server/src';
-import { inferProcedureInput, inferProcedureOutput } from '@trpc/server/src';
-import { Observable, observable } from '@trpc/server/src/observable';
+import type {
+  inferProcedureInput,
+  inferProcedureOutput,
+} from '@trpc/server/src';
+import type { Observable } from '@trpc/server/src/observable';
+import { observable } from '@trpc/server/src/observable';
 import { z } from 'zod';
 
 describe('infer query input & output', () => {
@@ -169,7 +173,6 @@ describe('infer mutation input & output', () => {
 });
 
 describe('infer subscription input & output', () => {
-  // @ts-expect-error - ensure "output" is omitted in subscription procedure
   const router = trpc
     .router()
     .subscription('noSubscription', {
@@ -192,6 +195,7 @@ describe('infer subscription input & output', () => {
         });
       },
     })
+    // @ts-expect-error - ensure "output" is omitted in subscription procedure
     .subscription('withOutput', {
       input: z.string(),
       output: z.null(),

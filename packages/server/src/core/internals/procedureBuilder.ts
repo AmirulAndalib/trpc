@@ -1,14 +1,13 @@
 import { getTRPCErrorFromUnknown, TRPCError } from '../../error/TRPCError';
-import { MaybePromise, Simplify } from '../../types';
-import {
-  createInputMiddleware,
-  createOutputMiddleware,
+import type { MaybePromise, Simplify } from '../../types';
+import type {
   MiddlewareBuilder,
   MiddlewareFunction,
   MiddlewareResult,
 } from '../middleware';
-import { inferParser, Parser } from '../parser';
-import {
+import { createInputMiddleware, createOutputMiddleware } from '../middleware';
+import type { inferParser, Parser } from '../parser';
+import type {
   AnyMutationProcedure,
   AnyProcedure,
   AnyQueryProcedure,
@@ -16,18 +15,18 @@ import {
   Procedure,
   ProcedureParams,
 } from '../procedure';
-import { ProcedureType } from '../types';
-import { AnyRootConfig } from './config';
+import type { ProcedureType } from '../types';
+import type { AnyRootConfig } from './config';
 import { getParseFn } from './getParseFn';
 import { mergeWithoutOverrides } from './mergeWithoutOverrides';
-import {
+import type {
   DefaultValue,
-  middlewareMarker,
   Overwrite,
   OverwriteKnown,
   ResolveOptions,
   UnsetMarker,
 } from './utils';
+import { middlewareMarker } from './utils';
 
 type CreateProcedureReturnInput<
   TPrev extends ProcedureParams,
@@ -316,14 +315,8 @@ export interface ProcedureCallOptions {
 }
 
 const codeblock = `
-If you want to call this function on the server, you do the following:
 This is a client-only function.
-
-const caller = appRouter.createCaller({
-  /* ... your context */
-});
-
-const result = await caller.call('myProcedure', input);
+If you want to call this function on the server, see https://trpc.io/docs/server/server-side-calls
 `.trim();
 
 function createProcedureCaller(_def: AnyProcedureBuilderDef): AnyProcedure {
