@@ -1,11 +1,13 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 import { createAppRouter } from './__testHelpers';
-import { DehydratedState } from '@tanstack/react-query';
+import type { DehydratedState } from '@tanstack/react-query';
 import { render, waitFor } from '@testing-library/react';
-import { withTRPC } from '@trpc/next/src';
+import { withTRPC } from '@trpc/next';
+import { ssrPrepass } from '@trpc/next/ssrPrepass';
 import { konn } from 'konn';
-import { AppType } from 'next/dist/shared/lib/utils';
+import type { AppType, NextPageContext } from 'next/dist/shared/lib/utils';
 import React from 'react';
+import { expect, vitest } from 'vitest';
 
 const ctx = konn()
   .beforeEach(() => createAppRouter())
@@ -18,7 +20,7 @@ describe('withTRPC()', () => {
     const { window } = global;
 
     // @ts-ignore
-    delete global.window;
+    delete globalThis.window;
     const { trpc, trpcClientOptions } = ctx;
     const App: AppType = () => {
       const query = trpc.allPosts.useQuery();
@@ -28,6 +30,7 @@ describe('withTRPC()', () => {
     const Wrapped = withTRPC({
       config: () => trpcClientOptions,
       ssr: true,
+      ssrPrepass,
     })(App);
 
     const props = await Wrapped.getInitialProps!({
@@ -36,10 +39,253 @@ describe('withTRPC()', () => {
     } as any);
 
     // @ts-ignore
-    global.window = window;
-
+    globalThis.window = window;
     const utils = render(<Wrapped {...props} />);
     expect(utils.container).toHaveTextContent('first post');
+  });
+
+  describe('NextPageContext conditional ssr', async () => {
+    test('useQuery: conditional ssr', async () => {
+      // @ts-ignore
+      const { window } = global;
+      // @ts-ignore
+      delete globalThis.window;
+      const { trpc, trpcClientOptions } = ctx;
+      const App: AppType = () => {
+        const query = trpc.allPosts.useQuery();
+        return <>{JSON.stringify(query.data)}</>;
+      };
+
+      const mockContext = {
+        pathname: '/',
+        query: {},
+      } as NextPageContext;
+      const Wrapped = withTRPC({
+        config: () => trpcClientOptions,
+        ssr: ({ ctx }) => {
+          return ctx?.pathname === '/';
+        },
+        ssrPrepass,
+      })(App);
+
+      const props = await Wrapped.getInitialProps!({
+        AppTree: Wrapped,
+        Component: <div />,
+        ctx: mockContext,
+      } as any);
+      // @ts-ignore
+      globalThis.window = window;
+      const utils = render(<Wrapped {...props} />);
+      expect(utils.container).toHaveTextContent('first post');
+    });
+
+    test('useQuery: should not ssr when conditional function throws', async () => {
+      // @ts-ignore
+      const { window } = global;
+      // @ts-ignore
+      delete globalThis.window;
+      const { trpc, trpcClientOptions } = ctx;
+      const App: AppType = () => {
+        const query = trpc.allPosts.useQuery();
+        return <>{JSON.stringify(query.data)}</>;
+      };
+
+      const mockContext = {
+        pathname: '/',
+        query: {},
+      } as NextPageContext;
+      const Wrapped = withTRPC({
+        config: () => trpcClientOptions,
+        ssr: () => {
+          throw new Error('oops');
+        },
+        ssrPrepass,
+      })(App);
+
+      const props = await Wrapped.getInitialProps!({
+        AppTree: Wrapped,
+        Component: <div />,
+        ctx: mockContext,
+      } as any);
+      // @ts-ignore
+      globalThis.window = window;
+      const utils = render(<Wrapped {...props} />);
+      expect(utils.container).not.toHaveTextContent('first post');
+    });
+
+    test('useQuery: conditional ssr false', async () => {
+      // @ts-ignore
+      const { window } = global;
+      // @ts-ignore
+      delete globalThis.window;
+      const { trpc, trpcClientOptions } = ctx;
+      const App: AppType = () => {
+        const query = trpc.allPosts.useQuery();
+        return <>{JSON.stringify(query.data)}</>;
+      };
+
+      const mockContext = {
+        pathname: '/',
+        query: {},
+      } as NextPageContext;
+      const Wrapped = withTRPC({
+        config: () => trpcClientOptions,
+        ssr: ({ ctx }) => {
+          return ctx?.pathname === '/not-matching-path';
+        },
+        ssrPrepass,
+      })(App);
+
+      const props = await Wrapped.getInitialProps!({
+        AppTree: Wrapped,
+        Component: <div />,
+        ctx: mockContext,
+      } as any);
+      // @ts-ignore
+      globalThis.window = window;
+      const utils = render(<Wrapped {...props} />);
+      expect(utils.container).not.toHaveTextContent('first post');
+    });
+
+    test('useQuery: async conditional ssr with delay', async () => {
+      // @ts-ignore
+      const { window } = global;
+      // @ts-ignore
+      delete globalThis.window;
+      const { trpc, trpcClientOptions } = ctx;
+      const App: AppType = () => {
+        const query = trpc.allPosts.useQuery();
+        return <>{JSON.stringify(query.data)}</>;
+      };
+
+      const mockContext = {
+        pathname: '/',
+        query: {},
+      } as NextPageContext;
+      const Wrapped = withTRPC({
+        config: () => trpcClientOptions,
+        ssr: async ({ ctx }) => {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          return ctx?.pathname === '/';
+        },
+        ssrPrepass,
+      })(App);
+
+      const props = await Wrapped.getInitialProps!({
+        AppTree: Wrapped,
+        Component: <div />,
+        ctx: mockContext,
+      } as any);
+      // @ts-ignore
+      globalThis.window = window;
+      const utils = render(<Wrapped {...props} />);
+      expect(utils.container).toHaveTextContent('first post');
+    }, 7000); // increase the timeout just for this test
+
+    test('browser render', async () => {
+      const { trpc, trpcClientOptions } = ctx;
+      const App: AppType = () => {
+        const query = trpc.allPosts.useQuery();
+        return <>{JSON.stringify(query.data)}</>;
+      };
+
+      const Wrapped = withTRPC({
+        config: () => trpcClientOptions,
+        ssr: async () => {
+          return true;
+        },
+        ssrPrepass,
+      })(App);
+
+      const props = await Wrapped.getInitialProps!({
+        AppTree: Wrapped,
+        Component: <div />,
+      } as any);
+
+      const utils = render(<Wrapped {...props} />);
+
+      await waitFor(() => {
+        expect(utils.container).toHaveTextContent('first post');
+      });
+    });
+
+    test('useInfiniteQuery with ssr: false in query but conditional ssr returns true', async () => {
+      const { window } = global;
+
+      // @ts-ignore
+      delete globalThis.window;
+      const { trpc, trpcClientOptions } = ctx;
+
+      const App: AppType = () => {
+        const query = trpc.paginatedPosts.useInfiniteQuery(
+          {
+            limit: 10,
+          },
+          {
+            getNextPageParam: (lastPage) => lastPage.nextCursor,
+            trpc: {
+              ssr: false,
+            },
+          },
+        );
+        return <>{JSON.stringify(query.data ?? query.error)}</>;
+      };
+      const mockContext = {
+        pathname: '/',
+        query: {},
+      } as NextPageContext;
+      const Wrapped = withTRPC({
+        config: () => trpcClientOptions,
+        ssr: async ({ ctx }) => {
+          return ctx?.pathname === '/';
+        },
+        ssrPrepass,
+      })(App);
+
+      const props = await Wrapped.getInitialProps!({
+        AppTree: Wrapped,
+        Component: <div />,
+        ctx: mockContext,
+      } as any);
+
+      globalThis.window = window;
+
+      const utils = render(<Wrapped {...props} />);
+      expect(utils.container).not.toHaveTextContent('first post');
+
+      // should eventually be fetched
+      await waitFor(() => {
+        expect(utils.container).toHaveTextContent('first post');
+      });
+    }, 20000);
+
+    test('ssr function not called on browser render', async () => {
+      const { trpc, trpcClientOptions } = ctx;
+      const App: AppType = () => {
+        const query = trpc.allPosts.useQuery();
+        return <>{JSON.stringify(query.data)}</>;
+      };
+
+      const ssrFn = vitest.fn().mockResolvedValue(true);
+
+      const Wrapped = withTRPC({
+        config: () => trpcClientOptions,
+        ssr: ssrFn,
+        ssrPrepass,
+      })(App);
+
+      const props = await Wrapped.getInitialProps!({
+        AppTree: Wrapped,
+        Component: <div />,
+      } as any);
+
+      const utils = render(<Wrapped {...props} />);
+
+      await waitFor(() => {
+        expect(utils.container).toHaveTextContent('first post');
+      });
+      expect(ssrFn).not.toHaveBeenCalled();
+    });
   });
 
   test('useQueries', async () => {
@@ -47,7 +293,7 @@ describe('withTRPC()', () => {
     const { window } = global;
 
     // @ts-ignore
-    delete global.window;
+    delete globalThis.window;
     const { trpc, trpcClientOptions } = ctx;
     const App: AppType = () => {
       const results = trpc.useQueries((t) => {
@@ -60,6 +306,7 @@ describe('withTRPC()', () => {
     const Wrapped = withTRPC({
       config: () => trpcClientOptions,
       ssr: true,
+      ssrPrepass,
     })(App);
 
     const props = await Wrapped.getInitialProps!({
@@ -105,7 +352,7 @@ describe('withTRPC()', () => {
     `);
 
     // @ts-ignore
-    global.window = window;
+    globalThis.window = window;
 
     const utils = render(<Wrapped {...props} />);
     expect(utils.container).toHaveTextContent('first post');
@@ -115,7 +362,7 @@ describe('withTRPC()', () => {
     const { window } = global;
 
     // @ts-ignore
-    delete global.window;
+    delete globalThis.window;
     const { trpc, trpcClientOptions } = ctx;
     const App: AppType = () => {
       const query = trpc.paginatedPosts.useInfiniteQuery(
@@ -126,12 +373,13 @@ describe('withTRPC()', () => {
           getNextPageParam: (lastPage) => lastPage.nextCursor,
         },
       );
-      return <>{JSON.stringify(query.data || query.error)}</>;
+      return <>{JSON.stringify(query.data ?? query.error)}</>;
     };
 
     const Wrapped = withTRPC({
       config: () => trpcClientOptions,
       ssr: true,
+      ssrPrepass,
     })(App);
 
     const props = await Wrapped.getInitialProps!({
@@ -139,7 +387,7 @@ describe('withTRPC()', () => {
       Component: <div />,
     } as any);
 
-    global.window = window;
+    globalThis.window = window;
 
     const utils = render(<Wrapped {...props} />);
     expect(utils.container).toHaveTextContent('first post');
@@ -155,6 +403,7 @@ describe('withTRPC()', () => {
     const Wrapped = withTRPC({
       config: () => trpcClientOptions,
       ssr: true,
+      ssrPrepass,
     })(App);
 
     const props = await Wrapped.getInitialProps!({
@@ -174,7 +423,7 @@ describe('withTRPC()', () => {
       const { window } = global;
 
       // @ts-ignore
-      delete global.window;
+      delete globalThis.window;
       const { trpc, trpcClientOptions } = ctx;
       const App: AppType = () => {
         const query = trpc.allPosts.useQuery(undefined, {
@@ -186,6 +435,7 @@ describe('withTRPC()', () => {
       const Wrapped = withTRPC({
         config: () => trpcClientOptions,
         ssr: true,
+        ssrPrepass,
       })(App);
 
       const props = await Wrapped.getInitialProps!({
@@ -193,7 +443,7 @@ describe('withTRPC()', () => {
         Component: <div />,
       } as any);
 
-      global.window = window;
+      globalThis.window = window;
 
       const utils = render(<Wrapped {...props} />);
       expect(utils.container).not.toHaveTextContent('first post');
@@ -208,7 +458,7 @@ describe('withTRPC()', () => {
       const { window } = global;
 
       // @ts-ignore
-      delete global.window;
+      delete globalThis.window;
       const { trpc, trpcClientOptions } = ctx;
       const App: AppType = () => {
         const query = trpc.paginatedPosts.useInfiniteQuery(
@@ -222,12 +472,13 @@ describe('withTRPC()', () => {
             },
           },
         );
-        return <>{JSON.stringify(query.data || query.error)}</>;
+        return <>{JSON.stringify(query.data ?? query.error)}</>;
       };
 
       const Wrapped = withTRPC({
         config: () => trpcClientOptions,
         ssr: true,
+        ssrPrepass,
       })(App);
 
       const props = await Wrapped.getInitialProps!({
@@ -235,7 +486,7 @@ describe('withTRPC()', () => {
         Component: <div />,
       } as any);
 
-      global.window = window;
+      globalThis.window = window;
 
       const utils = render(<Wrapped {...props} />);
       expect(utils.container).not.toHaveTextContent('first post');
@@ -252,7 +503,7 @@ describe('withTRPC()', () => {
     const { window } = global;
 
     // @ts-ignore
-    delete global.window;
+    delete globalThis.window;
     const { trpc, trpcClientOptions, createContext } = ctx;
     const App: AppType = () => {
       const query1 = trpc.postById.useQuery('1');
@@ -264,6 +515,7 @@ describe('withTRPC()', () => {
     const Wrapped = withTRPC({
       config: () => trpcClientOptions,
       ssr: true,
+      ssrPrepass,
     })(App);
 
     const props = await Wrapped.getInitialProps!({
@@ -272,7 +524,7 @@ describe('withTRPC()', () => {
     } as any);
 
     // @ts-ignore
-    global.window = window;
+    globalThis.window = window;
 
     const utils = render(<Wrapped {...props} />);
     expect(utils.container).toHaveTextContent('first post');
@@ -284,11 +536,11 @@ describe('withTRPC()', () => {
 
   describe('`enabled: false` on query during ssr', () => {
     describe('useQuery', () => {
-      test('queryKey does not change', async () => {
+      test('query is not included in serialized state', async () => {
         const { window } = global;
 
         // @ts-ignore
-        delete global.window;
+        delete globalThis.window;
         const { trpc, trpcClientOptions } = ctx;
         const App: AppType = () => {
           const query1 = trpc.postById.useQuery('1');
@@ -307,6 +559,7 @@ describe('withTRPC()', () => {
         const Wrapped = withTRPC({
           config: () => trpcClientOptions,
           ssr: true,
+          ssrPrepass,
         })(App);
 
         const props = await Wrapped.getInitialProps!({
@@ -314,7 +567,7 @@ describe('withTRPC()', () => {
           Component: <div />,
         } as any);
 
-        global.window = window;
+        globalThis.window = window;
 
         const utils = render(<Wrapped {...props} />);
 
@@ -327,12 +580,60 @@ describe('withTRPC()', () => {
           expect(utils.container).toHaveTextContent('second post');
         });
       });
+      test('query is not serialized when disabled or ssr: false', async () => {
+        const { window } = global;
+
+        // @ts-ignore
+        delete globalThis.window;
+        const { trpc, trpcClientOptions } = ctx;
+        const App: AppType = () => {
+          const query1 = trpc.postById.useQuery('1');
+          // query2 depends only on query1 status
+          const query2 = trpc.postById.useQuery('2', {
+            trpc: {
+              ssr: false,
+            },
+          });
+          return (
+            <>
+              <>{JSON.stringify(query1.data)}</>
+              <>{JSON.stringify(query2.data)}</>
+            </>
+          );
+        };
+
+        const Wrapped = withTRPC({
+          config: () => trpcClientOptions,
+          ssr: true,
+          ssrPrepass,
+        })(App);
+
+        const props = (await Wrapped.getInitialProps!({
+          AppTree: Wrapped,
+          Component: <div />,
+        } as any)) as {
+          pageProps: {
+            trpcState: DehydratedState;
+          };
+        };
+
+        globalThis.window = window;
+
+        const utils = render(<Wrapped {...(props as any)} />);
+
+        // when queryKey does not change query2 only fetched in the browser
+        expect(utils.container).toHaveTextContent('first post');
+        expect(utils.container).not.toHaveTextContent('second post');
+        const dehydratedQueries = props.pageProps.trpcState.queries;
+        expect(dehydratedQueries).toHaveLength(1);
+        expect((dehydratedQueries[0]!.queryKey[1] as any).input).toEqual('1');
+      });
 
       test('queryKey changes', async () => {
         const { window } = global;
 
         // @ts-ignore
-        delete global.window;
+        delete globalThis.window;
         const { trpc, trpcClientOptions } = ctx;
         const App: AppType = () => {
           const query1 = trpc.postById.useQuery('1');
@@ -357,6 +658,7 @@ describe('withTRPC()', () => {
         const Wrapped = withTRPC({
           config: () => trpcClientOptions,
           ssr: true,
+          ssrPrepass,
         })(App);
 
         const props = await Wrapped.getInitialProps!({
@@ -364,7 +666,7 @@ describe('withTRPC()', () => {
           Component: <div />,
         } as any);
 
-        global.window = window;
+        globalThis.window = window;
 
         const utils = render(<Wrapped {...props} />);
 
@@ -384,7 +686,7 @@ describe('withTRPC()', () => {
         const { window } = global;
 
         // @ts-ignore
-        delete global.window;
+        delete globalThis.window;
         const { trpc, trpcClientOptions } = ctx;
         const App: AppType = () => {
           const query1 = trpc.paginatedPosts.useInfiniteQuery(
@@ -412,6 +714,7 @@ describe('withTRPC()', () => {
         const Wrapped = withTRPC({
           config: () => trpcClientOptions,
           ssr: true,
+          ssrPrepass,
         })(App);
 
         const props = await Wrapped.getInitialProps!({
@@ -419,7 +722,7 @@ describe('withTRPC()', () => {
           Component: <div />,
         } as any);
 
-        global.window = window;
+        globalThis.window = window;
 
         const utils = render(<Wrapped {...props} />);
 
@@ -437,7 +740,7 @@ describe('withTRPC()', () => {
         const { window } = global;
 
         // @ts-ignore
-        delete global.window;
+        delete globalThis.window;
         const { trpc, trpcClientOptions } = ctx;
         const App: AppType = () => {
           const query1 = trpc.paginatedPosts.useInfiniteQuery(
@@ -465,6 +768,7 @@ describe('withTRPC()', () => {
         const Wrapped = withTRPC({
           config: () => trpcClientOptions,
           ssr: true,
+          ssrPrepass,
         })(App);
 
         const props = await Wrapped.getInitialProps!({
@@ -472,7 +776,7 @@ describe('withTRPC()', () => {
           Component: <div />,
         } as any);
 
-        global.window = window;
+        globalThis.window = window;
 
         const utils = render(<Wrapped {...props} />);
 
@@ -484,6 +788,67 @@ describe('withTRPC()', () => {
           expect(utils.container).toHaveTextContent('first post');
           expect(utils.container).toHaveTextContent('second post');
         });
+      });
+    });
+  });
+
+  describe('individual pages', () => {
+    test('useQuery', async () => {
+      // @ts-ignore
+      const { window } = global;
+
+      // @ts-ignore
+      delete globalThis.window;
+      const { trpc, trpcClientOptions } = ctx;
+      const App = () => {
+        const query = trpc.allPosts.useQuery();
+        return <>{JSON.stringify(query.data)}</>;
+      };
+
+      const Wrapped = withTRPC({
+        config: () => trpcClientOptions,
+      })(App);
+
+      // @ts-ignore
+      globalThis.window = window;
+
+      const utils = render(<Wrapped />);
+      expect(utils.container).not.toHaveTextContent('first post');
+
+      // should eventually be fetched
+      await waitFor(() => {
+        expect(utils.container).toHaveTextContent('first post');
+      });
+    });
+    test('useQuery - ssr', async () => {
+      // @ts-ignore
+      const { window } = global;
+
+      // @ts-ignore
+      delete globalThis.window;
+      const { trpc, trpcClientOptions } = ctx;
+      const App = () => {
+        const query = trpc.allPosts.useQuery();
+        return <>{JSON.stringify(query.data)}</>;
+      };
+
+      const Wrapped = withTRPC({
+        config: () => trpcClientOptions,
+        ssr: true,
+        ssrPrepass,
+      })(App);
+
+      // @ts-ignore
+      globalThis.window = window;
+
+      // ssr should not work
+
+      const utils = render(<Wrapped />);
+      expect(utils.container).not.toHaveTextContent('first post');
+
+      // should eventually be fetched
+      await waitFor(() => {
+        expect(utils.container).toHaveTextContent('first post');
       });
     });
   });

@@ -2,7 +2,6 @@ import { getServerAndReactClient } from '../react/__reactHelpers';
 import { useQuery } from '@tanstack/react-query';
 import { render, waitFor } from '@testing-library/react';
 import { initTRPC } from '@trpc/server';
-import { expectTypeOf } from 'expect-type';
 import { konn } from 'konn';
 import React from 'react';
 
@@ -10,7 +9,7 @@ const posts = [
   { id: 1, title: 'foo' },
   { id: 2, title: 'bar' },
 ];
-type Post = typeof posts[number];
+type Post = (typeof posts)[number];
 
 const fetchPosts = async () => posts;
 
@@ -30,14 +29,17 @@ const ctx = konn()
   .done();
 
 test('destructuring data', async () => {
-  const { App, proxy } = ctx;
+  const { App, client } = ctx;
 
   function MyComponent() {
-    const { data: trpcData = [] } = proxy.posts.useQuery();
+    const { data: trpcData = [] } = client.posts.useQuery();
     expectTypeOf<typeof trpcData>().toEqualTypeOf<Post[]>();
 
     // verify tanstack returns the same
-    const { data: rqData = [] } = useQuery(['key'], fetchPosts);
+    const { data: rqData = [] } = useQuery({
+      queryKey: ['key'],
+      queryFn: fetchPosts,
+    });
     expectTypeOf<typeof rqData>().toEqualTypeOf<Post[]>();
 
     if (!trpcData) throw new Error('should not happen');
@@ -59,16 +61,18 @@ test('destructuring data', async () => {
 });
 
 test('using `initialData`', async () => {
-  const { App, proxy } = ctx;
+  const { App, client } = ctx;
 
   function MyComponent() {
-    const { data: trpcData } = proxy.posts.useQuery(undefined, {
+    const { data: trpcData } = client.posts.useQuery(undefined, {
       initialData: [],
     });
     expectTypeOf<typeof trpcData>().toEqualTypeOf<Post[]>();
 
     // verify tanstack returns the same
-    const { data: rqData } = useQuery(['key'], fetchPosts, {
+    const { data: rqData } = useQuery({
+      queryKey: ['key'],
+      queryFn: fetchPosts,
       initialData: [],
     });
     expectTypeOf<typeof rqData>().toEqualTypeOf<Post[]>();
@@ -92,16 +96,18 @@ test('using `initialData`', async () => {
 });
 
 test('using `placeholderData`', async () => {
-  const { App, proxy } = ctx;
+  const { App, client } = ctx;
 
   function MyComponent() {
-    const { data: trpcData } = proxy.posts.useQuery(undefined, {
+    const { data: trpcData } = client.posts.useQuery(undefined, {
       placeholderData: [],
     });
     expectTypeOf<typeof trpcData>().toEqualTypeOf<Post[] | undefined>();
 
     // verify tanstack returns the same
-    const { data: rqData } = useQuery(['key'], fetchPosts, {
+    const { data: rqData } = useQuery({
+      queryKey: ['key'],
+      queryFn: fetchPosts,
       placeholderData: [],
     });
     expectTypeOf<typeof rqData>().toEqualTypeOf<Post[] | undefined>();

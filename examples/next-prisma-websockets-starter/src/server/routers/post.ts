@@ -2,7 +2,7 @@
  *
  * This is an example router, you can delete this file and then update `../pages/api/trpc/[trpc].tsx`
  */
-import { Post } from '@prisma/client';
+import type { Post } from '@prisma/client';
 import { observable } from '@trpc/server/observable';
 import { EventEmitter } from 'events';
 import { prisma } from '../prisma';
@@ -46,7 +46,9 @@ const interval = setInterval(() => {
     ee.emit('isTypingUpdate');
   }
 }, 3e3);
-process.on('SIGTERM', () => clearInterval(interval));
+process.on('SIGTERM', () => {
+  clearInterval(interval);
+});
 
 export const postRouter = router({
   add: authedProcedure
@@ -105,21 +107,23 @@ export const postRouter = router({
         skip: 0,
       });
       const items = page.reverse();
-      let prevCursor: null | typeof cursor = null;
+      let nextCursor: typeof cursor | null = null;
       if (items.length > take) {
         const prev = items.shift();
-        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-        prevCursor = prev!.createdAt;
+
+        nextCursor = prev!.createdAt;
       }
       return {
         items,
-        prevCursor,
+        nextCursor,
       };
     }),
 
   onAdd: publicProcedure.subscription(() => {
     return observable<Post>((emit) => {
-      const onAdd = (data: Post) => emit.next(data);
+      const onAdd = (data: Post) => {
+        emit.next(data);
+      };
       ee.on('add', onAdd);
       return () => {
         ee.off('add', onAdd);
