@@ -1,4 +1,5 @@
-import React, { FC } from 'react';
+import type { FC } from 'react';
+import React from 'react';
 import { FaBatteryFull, FaSeedling } from 'react-icons/fa';
 import { FiBriefcase, FiLock, FiTerminal, FiZap } from 'react-icons/fi';
 
@@ -52,17 +53,17 @@ const features = [
 
 export const Features: FC = () => {
   return (
-    <div className="grid grid-cols-1 gap-6 mx-auto lg:grid-cols-3">
+    <div className="mx-auto grid grid-cols-1 gap-6 lg:grid-cols-3">
       {features.map((feature) => {
         return (
           <div key={feature.title}>
             <h2
-              className={`${feature.color} mb-3 rounded-xl w-12 h-12 grid place-items-center`}
+              className={`${feature.color} mb-3 grid h-12 w-12 place-items-center rounded-xl`}
             >
               {feature.icon}
             </h2>
             <h3 className="text-lg font-bold md:text-xl">{feature.title}</h3>
-            <p className="text-sm text-gray-600 dark:text-gray-400 md:text-base">
+            <p className="text-sm text-zinc-600 dark:text-zinc-300 md:text-base">
               {feature.description}
             </p>
           </div>

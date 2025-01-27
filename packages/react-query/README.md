@@ -24,13 +24,16 @@ Full documentation for `@trpc/react-query` can be found [here](https://trpc.io/d
 
 ```bash
 # npm
-npm install @trpc/react-query @tanstack/react-query
+npm install @trpc/react-query@next @tanstack/react-query
 
 # Yarn
-yarn add @trpc/react-query @tanstack/react-query
+yarn add @trpc/react-query@next @tanstack/react-query
 
 # pnpm
-pnpm add @trpc/react-query @tanstack/react-query
+pnpm add @trpc/react-query@next @tanstack/react-query
+
+# Bun
+bun add @trpc/react-query@next @tanstack/react-query
 ```
 
 ## Basic Example
@@ -38,7 +41,7 @@ pnpm add @trpc/react-query @tanstack/react-query
 Create a utils file that exports tRPC hooks and providers.
 
 ```ts
-import { createReactQueryHooks, createTRPCReact } from '@trpc/react-query';
+import { createTRPCReact } from '@trpc/react-query';
 import type { AppRouter } from './server';
 
 export const trpc = createTRPCReact<AppRouter>();
@@ -48,9 +51,8 @@ Use the provider to connect to your API.
 
 ```ts
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import React from 'react';
-import { useState } from 'react';
 import { trpc } from '~/utils/trpc';
+import React, { useState } from 'react';
 
 export function App() {
   const [queryClient] = useState(() => new QueryClient());
@@ -72,10 +74,10 @@ export function App() {
 Now in any component, you can query your API using the proxy exported from the utils file.
 
 ```ts
-import { proxy } from '~/utils/trpc';
+import { trpc } from '~/utils/trpc';
 
 export function Hello() {
-  const { data, error, status } = proxy.greeting.useQuery({ name: 'tRPC' });
+  const { data, error, status } = trpc.greeting.useQuery({ name: 'tRPC' });
 
   if (error) {
     return <p>{error.message}</p>;

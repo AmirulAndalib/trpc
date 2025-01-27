@@ -1,6 +1,6 @@
-import { inferAsyncReturnType, initTRPC } from '@trpc/server';
-import { awsLambdaRequestHandler } from '@trpc/server/adapters/aws-lambda';
+import { initTRPC } from '@trpc/server';
 import type { CreateAWSLambdaContextOptions } from '@trpc/server/adapters/aws-lambda';
+import { awsLambdaRequestHandler } from '@trpc/server/adapters/aws-lambda';
 import type { APIGatewayProxyEvent } from 'aws-lambda';
 import { z } from 'zod';
 
@@ -10,11 +10,11 @@ function createContext({
 }: CreateAWSLambdaContextOptions<APIGatewayProxyEvent>) {
   return {
     event: event,
-    apiVersion: (event as { version?: string }).version || '1.0',
+    apiVersion: (event as { version?: string }).version ?? '1.0',
     user: event.headers['x-user'],
   };
 }
-type Context = inferAsyncReturnType<typeof createContext>;
+type Context = Awaited<ReturnType<typeof createContext>>;
 
 const t = initTRPC.context<Context>().create();
 

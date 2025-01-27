@@ -1,18 +1,17 @@
 import { createAppRouter } from './__testHelpers';
-import '@testing-library/jest-dom';
-import { createProxySSGHelpers } from '@trpc/react-query/src/ssg';
+import { createServerSideHelpers } from '@trpc/react-query/server';
 
 let factory: ReturnType<typeof createAppRouter>;
 beforeEach(() => {
   factory = createAppRouter();
 });
-afterEach(() => {
-  factory.close();
+afterEach(async () => {
+  await factory.close();
 });
 
 test('dehydrate', async () => {
   const { db, appRouter } = factory;
-  const ssg = createProxySSGHelpers({ router: appRouter, ctx: {} });
+  const ssg = createServerSideHelpers({ router: appRouter, ctx: {} });
 
   await ssg.allPosts.prefetch();
   await ssg.postById.prefetch('1');
@@ -22,7 +21,7 @@ test('dehydrate', async () => {
 
   const [cache, cache2] = dehydrated;
   expect(cache!.queryHash).toMatchInlineSnapshot(
-    `"[[\\"allPosts\\"],{\\"type\\":\\"query\\"}]"`,
+    `"[["allPosts"],{"type":"query"}]"`,
   );
   expect(cache!.queryKey).toMatchInlineSnapshot(`
     Array [

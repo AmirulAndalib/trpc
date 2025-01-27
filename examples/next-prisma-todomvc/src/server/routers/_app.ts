@@ -1,4 +1,4 @@
-import { router } from '../trpc';
+import { baseProcedure, router } from '../trpc';
 import { todoRouter } from './todo';
 
 export const appRouter = router({

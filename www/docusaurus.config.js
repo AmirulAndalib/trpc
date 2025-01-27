@@ -1,7 +1,7 @@
 // @ts-check
-/* eslint-disable @typescript-eslint/no-var-requires */
 
 const { parseEnv } = require('./src/utils/env');
+const { generateTypedocDocusaurusPlugins } = require('./docusaurus.typedoc.js');
 
 const env = parseEnv(process.env);
 
@@ -33,13 +33,13 @@ module.exports = {
   favicon: 'img/favicon.ico',
   organizationName: 'trpc', // Usually your GitHub org/user name.
   projectName: 'trpc', // Usually your repo name.
+  future: {
+    experimental_faster: true,
+  },
   themeConfig: {
     disableSwitch: false,
     respectPrefersColorScheme: true,
     image: `${env.OG_URL}/api/landing?cache-buster=${new Date().getDate()}`,
-    prism: {
-      theme: require('prism-react-renderer/themes/vsDark'),
-    },
     algolia: {
       appId: 'BTGPSR4MOE',
       apiKey: 'ed8b3896f8e3e2b421e4c38834b915a8',
@@ -47,14 +47,14 @@ module.exports = {
       // contextualSearch: true,
       // searchParameters: {},
     },
-    announcementBar: {
-      id: 'v10',
-      content:
-        "🚀 You are looking at tRPC <strong>version 10</strong>! Read the <a href='/blog/announcing-trpc-10'>announcement post</a> or see the <a href='/docs/migrate-from-v9-to-v10'>migration guide</a> if you're currently using tRPC v9",
-      backgroundColor: 'var(--ifm-color-primary-dark)',
-      textColor: '#ffffff',
-      isCloseable: true,
-    },
+    // announcementBar: {
+    //   id: 'actions',
+    //   content:
+    //     "🚀 New blog post live! Check out how to use Server Actions with tRPC <a href='/blog/trpc-actions'><strong>here</strong></a>.",
+    //   backgroundColor: 'var(--ifm-color-primary-dark)',
+    //   textColor: '#ffffff',
+    //   isCloseable: true,
+    // },
     navbar: {
       title: 'tRPC',
       logo: {
@@ -72,11 +72,11 @@ module.exports = {
           label: 'Quickstart',
         },
         {
-          to: 'docs/awesome-trpc',
+          to: 'docs/community/awesome-trpc',
           label: 'Awesome tRPC Collection',
         },
         {
-          to: 'docs/nextjs',
+          to: 'docs/client/nextjs',
           label: 'Using Next.js',
         },
         {
@@ -115,7 +115,11 @@ module.exports = {
             },
             {
               label: 'Usage with Next.js',
-              to: 'docs/nextjs',
+              to: 'docs/client/nextjs',
+            },
+            {
+              label: 'FAQ / Troubleshooting',
+              to: 'docs/faq',
             },
           ],
         },
@@ -124,7 +128,7 @@ module.exports = {
           items: [
             {
               label: 'GitHub',
-              href: 'https://github.com/trpc/trpc/tree/main',
+              href: 'https://github.com/trpc/trpc/tree/next',
               className: 'flex items-center',
             },
             {
@@ -148,7 +152,7 @@ module.exports = {
             },
             {
               label: 'GitHub',
-              href: 'https://github.com/trpc/trpc/tree/main',
+              href: 'https://github.com/trpc/trpc/tree/next',
               className: 'flex items-center',
             },
             {
@@ -163,18 +167,25 @@ module.exports = {
     },
   },
   plugins: [
+    // Sidebar order is decided by the position in the array below
+    ...(env.TYPEDOC
+      ? generateTypedocDocusaurusPlugins([
+          'server',
+          'client',
+          'react-query',
+          'next',
+        ])
+      : []),
     async function myPlugin() {
       return {
         name: 'docusaurus-tailwindcss',
         configurePostCss(postcssOptions) {
           // Appends TailwindCSS, AutoPrefixer & CSSNano.
-          /* eslint-disable @typescript-eslint/no-var-requires */
           postcssOptions.plugins.push(require('tailwindcss'));
           postcssOptions.plugins.push(require('autoprefixer'));
           if (process.env.NODE_ENV === 'production') {
             postcssOptions.plugins.push(require('cssnano'));
           }
-          /* eslint-enable @typescript-eslint/no-var-requires */
           return postcssOptions;
         },
       };
@@ -190,46 +201,57 @@ module.exports = {
           // onlyIncludeVersions: ['9.x'],
           versions: {
             current: {
-              label: '10.x',
+              label: '11.x',
               // path: 'v10',
               badge: true,
-              className: 'v10',
+              // className: 'v11',
+              banner: 'unreleased',
+            },
+            '10.x': {
+              label: '10.x',
+              path: 'v10',
+              badge: true,
+              // className: 'v10',
               banner: 'none',
             },
             '9.x': {
               label: '9.x',
               path: 'v9',
               badge: true,
-              className: 'v9',
+              // className: 'v9',
               banner: 'unmaintained',
             },
           },
           // includeCurrentVersion: false,
           sidebarPath: require.resolve('./sidebars.js'),
           // Please change this to your repo.
-          editUrl: 'https://github.com/trpc/trpc/tree/main/www/',
+          editUrl: 'https://github.com/trpc/trpc/tree/next/www/',
+          remarkPlugins: [
+            [
+              require('remark-shiki-twoslash').default,
+              require('./shikiTwoslash.config'),
+            ],
+            require('./mdxToJsx'), // Transforms HTML nodes output by shiki-twoslash into JSX nodes
+          ],
         },
         blog: {
           showReadingTime: true,
           // Please change this to your repo.
-          editUrl: 'https://github.com/trpc/trpc/tree/main/www/',
+          editUrl: 'https://github.com/trpc/trpc/tree/next/www/',
+          remarkPlugins: [
+            [
+              require('remark-shiki-twoslash').default,
+              require('./shikiTwoslash.config'),
+            ],
+            require('./mdxToJsx'), // Transforms HTML nodes output by shiki-twoslash into JSX nodes
+          ],
         },
         theme: {
-          customCss: require.resolve('./src/css/custom.css'),
+          customCss: ['./src/css/custom.css'],
         },
-        googleAnalytics: {
-          trackingID: 'UA-198119985-2',
-          // Optional fields.
-          anonymizeIP: true, // Should IPs be anonymized?
+        gtag: {
+          trackingID: 'G-7KLX2VFLVR',
         },
-      },
-    ],
-    [
-      'docusaurus-preset-shiki-twoslash',
-      {
-        // Not sure how reliable this path is (it's relative from the preset package)?
-        // None of the light themes had good support for `diff` mode, so had to patch my own theme
-        themes: ['../../../../../../www/min-light-with-diff', 'nord'],
       },
     ],
   ],

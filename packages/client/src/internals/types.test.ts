@@ -1,34 +1,25 @@
-import { expectTypeOf } from 'expect-type';
 import isomorphicFetch from 'isomorphic-fetch';
 import nodeFetch from 'node-fetch';
 import type { fetch as undiciFetch } from 'undici';
+import { createTRPCClient } from '../createTRPCClient';
 import { getFetch } from '../getFetch';
-import { getAbortController } from './fetchHelpers';
-import {
-  AbortControllerEsque,
-  AbortControllerInstanceEsque,
-  FetchEsque,
-  ResponseEsque,
-} from './types';
-
-describe('AbortController', () => {
-  test('AbortControllerEsque', () => {
-    expectTypeOf(
-      getAbortController,
-    ).returns.toEqualTypeOf<AbortControllerEsque | null>();
-
-    getAbortController(
-      null as unknown as typeof import('abort-controller')['AbortController'],
-    );
-
-    expectTypeOf(() => {
-      const AbortController = getAbortController(undefined)!;
-      return new AbortController();
-    }).returns.toEqualTypeOf<AbortControllerInstanceEsque>();
-  });
-});
+import { httpBatchLink } from '../links/httpBatchLink';
+import type { FetchEsque, ResponseEsque } from './types';
 
 describe('fetch', () => {
+  test('parameters', () => {
+    createTRPCClient({
+      links: [
+        httpBatchLink({
+          url: 'YOUR_SERVER_URL',
+          fetch(url, options) {
+            return fetch(url, options);
+          },
+        }),
+      ],
+    });
+  });
+
   test('FetchEsque', () => {
     expectTypeOf(getFetch).returns.toEqualTypeOf<FetchEsque>();
 
@@ -46,7 +37,7 @@ describe('fetch', () => {
 
   test('NativeFetchEsque', () => {
     getFetch(isomorphicFetch);
-    getFetch(nodeFetch);
+    getFetch(nodeFetch as any);
 
     // Passing in undiciFetch directly in Node v18.7.0 gives:
     // ReferenceError: TextEncoder is not defined

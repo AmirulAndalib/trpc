@@ -1,39 +1,3 @@
-export interface AbortControllerEsque {
-  new (): AbortControllerInstanceEsque;
-}
-
-/**
- * Allows you to abort one or more requests.
- */
-export interface AbortControllerInstanceEsque {
-  /**
-   * The AbortSignal object associated with this object.
-   */
-  readonly signal: AbortSignalEsque;
-
-  /**
-   * Sets this object's AbortSignal's aborted flag and signals to
-   * any observers that the associated activity is to be aborted.
-   */
-  abort(): void;
-}
-
-/**
- * Allows you to communicate with a request and abort it if required via an AbortController.
- */
-export interface AbortSignalEsque {
-  /**
-   * Whether this signal's AbortController has signaled to abort.
-   */
-  readonly aborted: boolean;
-
-  addEventListener<TEvent extends keyof AbortSignalEventMap>(
-    type: TEvent,
-    listener: (this: AbortSignal, ev: AbortSignalEventMap[TEvent]) => any,
-    options?: boolean | AddEventListenerOptions,
-  ): void;
-}
-
 /**
  * A subset of the standard fetch function type needed by tRPC internally.
  * @see fetch from lib.dom.d.ts
@@ -51,40 +15,13 @@ export type FetchEsque = (
  * their own fetch types, such as undici and node-fetch.
  */
 export type NativeFetchEsque = (
-  url: string | URL,
+  url: URL | string,
   init?: NodeFetchRequestInitEsque,
 ) => Promise<ResponseEsque>;
 
 export interface NodeFetchRequestInitEsque {
   body?: string;
 }
-
-/**
- * A subset of the standard Headers properties needed by tRPC internally.
- * @see Headers from lib.dom.d.ts
- * @remarks
- * If you need a property that you know exists but doesn't exist on this
- * interface, go ahead and add it.
- */
-export interface HeadersEsque {
-  append(name: string, value: string): void;
-  delete(name: string): void;
-  get(name: string): string | null;
-  has(name: string): boolean;
-  set(name: string, value: string): void;
-  forEach(
-    callbackfn: (value: string, key: string) => void,
-    thisArg?: any,
-  ): void;
-}
-
-export type ResponseType =
-  | 'basic'
-  | 'cors'
-  | 'default'
-  | 'error'
-  | 'opaque'
-  | 'opaqueredirect';
 
 /**
  * A subset of the standard RequestInit properties needed by tRPC internally.
@@ -97,7 +34,7 @@ export interface RequestInitEsque {
   /**
    * Sets the request's body.
    */
-  body?: string | ReadableStream | null;
+  body?: FormData | string | null | Uint8Array | Blob | File;
 
   /**
    * Sets the request's associated headers.
@@ -112,26 +49,30 @@ export interface RequestInitEsque {
   /**
    * Sets the request's signal.
    */
-  signal?: AbortSignalEsque | null;
+  signal?: AbortSignal | undefined;
 }
+
+/**
+ * A subset of the standard ReadableStream properties needed by tRPC internally.
+ * @see ReadableStream from lib.dom.d.ts
+ */
+export type WebReadableStreamEsque = {
+  getReader: () => ReadableStreamDefaultReader<Uint8Array>;
+};
+
+export type NodeJSReadableStreamEsque = {
+  on(
+    eventName: string | symbol,
+    listener: (...args: any[]) => void,
+  ): NodeJSReadableStreamEsque;
+};
 
 /**
  * A subset of the standard Response properties needed by tRPC internally.
  * @see Response from lib.dom.d.ts
- * @remarks
- * If you need a property that you know exists but doesn't exist on this
- * interface, go ahead and add it.
  */
 export interface ResponseEsque {
-  readonly headers: HeadersEsque;
-  readonly ok: boolean;
-  readonly redirected: boolean;
-  readonly status: number;
-  readonly statusText: string;
-  readonly type: ResponseType;
-  readonly url: string;
-  clone(): ResponseEsque;
-
+  readonly body?: NodeJSReadableStreamEsque | WebReadableStreamEsque | null;
   /**
    * @remarks
    * The built-in Response::json() method returns Promise<any>, but
@@ -139,4 +80,22 @@ export interface ResponseEsque {
    * more type-safe. You do want more type safety, right? 😉
    */
   json(): Promise<unknown>;
+}
+
+/**
+ * @internal
+ */
+export type NonEmptyArray<TItem> = [TItem, ...TItem[]];
+
+type ClientContext = Record<string, unknown>;
+
+/**
+ * @public
+ */
+export interface TRPCProcedureOptions {
+  /**
+   * Client-side context
+   */
+  context?: ClientContext;
+  signal?: AbortSignal;
 }

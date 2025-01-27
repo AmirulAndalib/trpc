@@ -1,9 +1,12 @@
 {
   "compilerOptions": {
-    "moduleResolution": "node",
+    "target": "esnext",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "esModuleInterop": true,
     "strict": true,
-    "outDir": "dist"
+    "outDir": "dist",
+    "skipLibCheck": true
   },
-  "include": ["server", "client"]
+  "include": ["src"]
 }

@@ -3,7 +3,7 @@
  * This is an example router, you can delete this file and then update `../pages/api/trpc/[trpc].tsx`
  */
 import { router, publicProcedure } from '../trpc';
-import { Prisma } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { prisma } from '~/server/prisma';
@@ -13,13 +13,13 @@ import { prisma } from '~/server/prisma';
  * It's important to always explicitly say which fields you want to return in order to not leak extra information
  * @see https://github.com/prisma/prisma/issues/9353
  */
-const defaultPostSelect = Prisma.validator<Prisma.PostSelect>()({
+const defaultPostSelect = {
   id: true,
   title: true,
   text: true,
   createdAt: true,
   updatedAt: true,
-});
+} satisfies Prisma.PostSelect;
 
 export const postRouter = router({
   list: publicProcedure
@@ -32,7 +32,7 @@ export const postRouter = router({
     .query(async ({ input }) => {
       /**
        * For pagination docs you can have a look here
-       * @see https://trpc.io/docs/useInfiniteQuery
+       * @see https://trpc.io/docs/v11/useInfiniteQuery
        * @see https://www.prisma.io/docs/concepts/components/prisma-client/pagination
        */
 
@@ -57,7 +57,6 @@ export const postRouter = router({
       if (items.length > limit) {
         // Remove the last item and use it as next cursor
 
-        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         const nextItem = items.pop()!;
         nextCursor = nextItem.id;
       }

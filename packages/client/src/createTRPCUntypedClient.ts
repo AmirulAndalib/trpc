@@ -1,18 +1,15 @@
-import { AnyRouter } from '@trpc/server';
-import {
-  CreateTRPCClientOptions,
-  TRPCUntypedClient,
-} from './internals/TRPCUntypedClient';
+import type { AnyRouter } from '@trpc/server/unstable-core-do-not-import';
+import type { CreateTRPCClientOptions } from './internals/TRPCUntypedClient';
+import { TRPCUntypedClient } from './internals/TRPCUntypedClient';
 
 export function createTRPCUntypedClient<TRouter extends AnyRouter>(
   opts: CreateTRPCClientOptions<TRouter>,
-) {
-  const client = new TRPCUntypedClient(opts);
-  return client;
+): TRPCUntypedClient<TRouter> {
+  return new TRPCUntypedClient(opts);
 }
 
 export type {
   CreateTRPCClientOptions,
   TRPCRequestOptions,
-  TRPCUntypedClient,
 } from './internals/TRPCUntypedClient';
+export { TRPCUntypedClient } from './internals/TRPCUntypedClient';
