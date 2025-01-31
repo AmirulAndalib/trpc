@@ -2,7 +2,7 @@
 id: error-formatting
 title: Error Formatting
 sidebar_label: Error Formatting
-slug: /error-formatting
+slug: /server/error-formatting
 ---
 
 The error formatting in your router will be inferred all the way to your client (&&nbsp;React&nbsp;components)
@@ -15,7 +15,8 @@ The error formatting in your router will be inferred all the way to your client 
 import { initTRPC } from '@trpc/server';
 
 export const t = initTRPC.context<Context>().create({
-  errorFormatter({ shape, error }) {
+  errorFormatter(opts) {
+    const { shape, error } = opts;
     return {
       ...shape,
       data: {
@@ -68,16 +69,22 @@ export function MyComponent() {
 **`DefaultErrorShape`:**
 
 ```ts
-interface DefaultErrorData {
+type DefaultErrorData = {
   code: TRPC_ERROR_CODE_KEY;
   httpStatus: number;
+  /**
+   * Path to the procedure that threw the error
+   */
   path?: string;
+  /**
+   * Stack trace of the error (only in development)
+   */
   stack?: string;
-}
+};
 
-interface DefaultErrorShape
-  extends TRPCErrorShape<TRPC_ERROR_CODE_NUMBER, DefaultErrorData> {
+interface DefaultErrorShape {
   message: string;
   code: TRPC_ERROR_CODE_NUMBER;
+  data: DefaultErrorData;
 }
 ```

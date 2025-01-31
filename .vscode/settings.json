@@ -2,12 +2,18 @@
   "editor.defaultFormatter": "esbenp.prettier-vscode",
   "editor.formatOnSave": true,
   "editor.codeActionsOnSave": {
-    "source.fixAll.eslint": true
+    "source.fixAll.eslint": "explicit"
   },
-  "files.exclude": {
-    "packages/client/{links}": true,
-    "packages/react-query/{shared,ssg}": true,
-    "packages/server/{adapters,http,observable,rpc,shared,subscription}": true
+  "eslint.workingDirectories": [
+    { "pattern": "./examples/**" },
+    { "pattern": "./packages/*" },
+    { "pattern": "./www/*" }
+  ],
+  "search.exclude": {
+    "/www/versioned_docs": true,
+    "/www/.docusaurus": true,
+    "/www/build": true,
+    "**/dist": true
   },
   "workbench.colorCustomizations": {
     "titleBar.activeBackground": "#2596be",
@@ -18,8 +24,13 @@
   "editor.stickyScroll.enabled": true,
   "tailwindCSS.classAttributes": ["class", "className", "ngClass", "tw"],
   "tailwindCSS.experimental.classRegex": [
-    ["clsx\\(([^)]*)\\)", "[\"'`]([^\"'`]*).*?[\"'`]"]
+    ["clsx\\(([^)]*)\\)", "[\"'`]([^\"'`]*).*?[\"'`]", "cn\\(([^)]*)\\)"]
   ],
+  "tailwindCSS.experimental.configFile": "./www/tailwind.config.ts",
   "typescript.tsdk": "node_modules/typescript/lib",
-  "typescript.enablePromptUseWorkspaceTsdk": true
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+  "explorer.excludeGitIgnore": true,
+  "typescript.preferences.autoImportFileExcludePatterns": [
+    "packages/server/src/unstable-core-do-not-import.ts"
+  ]
 }

@@ -1,78 +1,121 @@
-/* eslint-disable @typescript-eslint/no-non-null-assertion */
-import { AnyRouter } from '../../core';
+/**
+ * If you're making an adapter for tRPC and looking at this file for reference, you should import types and functions from `@trpc/server` and `@trpc/server/http`
+ *
+ * @example
+ * ```ts
+ * import type { AnyTRPCRouter } from '@trpc/server'
+ * import type { HTTPBaseHandlerOptions } from '@trpc/server/http'
+ * ```
+ */
+
+// @trpc/server
+
 import {
-  HTTPRequest,
-  ResolveHTTPRequestOptionsContextFn,
-} from '../../http/internals/types';
-import { resolveHTTPResponse } from '../../http/resolveHTTPResponse';
-import { getPostBody } from './internals/getPostBody';
-import {
-  NodeHTTPHandlerOptions,
+  getTRPCErrorFromUnknown,
+  transformTRPCResponse,
+  type AnyRouter,
+} from '../../@trpc/server';
+import type { ResolveHTTPRequestOptionsContextFn } from '../../@trpc/server/http';
+import { resolveResponse } from '../../@trpc/server/http';
+// eslint-disable-next-line no-restricted-imports
+import { getErrorShape, run } from '../../unstable-core-do-not-import';
+import { incomingMessageToRequest } from './incomingMessageToRequest';
+import type {
   NodeHTTPRequest,
+  NodeHTTPRequestHandlerOptions,
   NodeHTTPResponse,
 } from './types';
+import { writeResponse } from './writeResponse';
 
-type NodeHTTPRequestHandlerOptions<
+/**
+ * @internal
+ */
+export function internal_exceptionHandler<
   TRouter extends AnyRouter,
   TRequest extends NodeHTTPRequest,
   TResponse extends NodeHTTPResponse,
-> = {
-  req: TRequest;
-  res: TResponse;
-  path: string;
-} & NodeHTTPHandlerOptions<TRouter, TRequest, TResponse>;
+>(opts: NodeHTTPRequestHandlerOptions<TRouter, TRequest, TResponse>) {
+  return (cause: unknown) => {
+    const { res, req } = opts;
+    const error = getTRPCErrorFromUnknown(cause);
 
+    const shape = getErrorShape({
+      config: opts.router._def._config,
+      error,
+      type: 'unknown',
+      path: undefined,
+      input: undefined,
+      ctx: undefined,
+    });
+
+    opts.onError?.({
+      req,
+      error,
+      type: 'unknown',
+      path: undefined,
+      input: undefined,
+      ctx: undefined,
+    });
+
+    const transformed = transformTRPCResponse(opts.router._def._config, {
+      error: shape,
+    });
+
+    res.statusCode = shape.data.httpStatus;
+    res.end(JSON.stringify(transformed));
+  };
+}
+
+/**
+ * @remark the promise never rejects
+ */
 export async function nodeHTTPRequestHandler<
   TRouter extends AnyRouter,
   TRequest extends NodeHTTPRequest,
   TResponse extends NodeHTTPResponse,
 >(opts: NodeHTTPRequestHandlerOptions<TRouter, TRequest, TResponse>) {
-  const createContext: ResolveHTTPRequestOptionsContextFn<TRouter> = async (
-    innerOpts,
-  ) => {
-    return await opts.createContext?.({
-      ...opts,
-      ...innerOpts,
+  return new Promise<void>((resolve) => {
+    const handleViaMiddleware =
+      opts.middleware ?? ((_req, _res, next) => next());
+
+    opts.res.once('finish', () => {
+      resolve();
     });
-  };
-  const { path, router } = opts;
+    return handleViaMiddleware(opts.req, opts.res, (err: unknown) => {
+      run(async () => {
+        const request = incomingMessageToRequest(opts.req, opts.res, {
+          maxBodySize: opts.maxBodySize ?? null,
+        });
 
-  const bodyResult = await getPostBody(opts);
+        // Build tRPC dependencies
+        const createContext: ResolveHTTPRequestOptionsContextFn<
+          TRouter
+        > = async (innerOpts) => {
+          return await opts.createContext?.({
+            ...opts,
+            ...innerOpts,
+          });
+        };
 
-  const query = opts.req.query
-    ? new URLSearchParams(opts.req.query as any)
-    : new URLSearchParams(opts.req.url!.split('?')[1]);
-  const req: HTTPRequest = {
-    method: opts.req.method!,
-    headers: opts.req.headers,
-    query,
-    body: bodyResult.ok ? bodyResult.data : undefined,
-  };
-  const result = await resolveHTTPResponse({
-    batching: opts.batching,
-    responseMeta: opts.responseMeta,
-    path,
-    createContext,
-    router,
-    req,
-    error: bodyResult.ok ? null : bodyResult.error,
-    onError(o) {
-      opts?.onError?.({
-        ...o,
-        req: opts.req,
-      });
-    },
+        const response = await resolveResponse({
+          ...opts,
+          req: request,
+          error: err ? getTRPCErrorFromUnknown(err) : null,
+          createContext,
+          onError(o) {
+            opts?.onError?.({
+              ...o,
+              req: opts.req,
+            });
+          },
+        });
+
+        await writeResponse({
+          request,
+          response,
+          rawResponse: opts.res,
+        });
+      }).catch(internal_exceptionHandler(opts));
+    });
   });
-
-  const { res } = opts;
-  if ('status' in result && (!res.statusCode || res.statusCode === 200)) {
-    res.statusCode = result.status;
-  }
-  for (const [key, value] of Object.entries(result.headers ?? {})) {
-    if (typeof value === 'undefined') {
-      continue;
-    }
-    res.setHeader(key, value);
-  }
-  res.end(result.body);
 }

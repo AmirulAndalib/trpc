@@ -1,19 +1,22 @@
-import { getWindow } from './internals/fetchHelpers';
-import { FetchEsque, NativeFetchEsque } from './internals/types';
+import type { FetchEsque, NativeFetchEsque } from './internals/types';
 
-export function getFetch(f?: FetchEsque | NativeFetchEsque): FetchEsque {
-  if (f) {
-    return f as FetchEsque;
+type AnyFn = (...args: any[]) => unknown;
+
+const isFunction = (fn: unknown): fn is AnyFn => typeof fn === 'function';
+
+export function getFetch(
+  customFetchImpl?: FetchEsque | NativeFetchEsque,
+): FetchEsque {
+  if (customFetchImpl) {
+    return customFetchImpl as FetchEsque;
   }
 
-  const win = getWindow();
-  const globalFetch = win.fetch;
-  if (globalFetch) {
-    return (
-      typeof globalFetch.bind === 'function'
-        ? globalFetch.bind(win)
-        : globalFetch
-    ) as FetchEsque;
+  if (typeof window !== 'undefined' && isFunction(window.fetch)) {
+    return window.fetch as FetchEsque;
+  }
+
+  if (typeof globalThis !== 'undefined' && isFunction(globalThis.fetch)) {
+    return globalThis.fetch as FetchEsque;
   }
 
   throw new Error('No fetch implementation found');

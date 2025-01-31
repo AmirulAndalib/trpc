@@ -1,20 +1,13 @@
-import { createTRPCProxyClient, httpBatchLink, loggerLink } from '@trpc/client';
+import { createTRPCClient, httpBatchLink, loggerLink } from '@trpc/client';
 import { tap } from '@trpc/server/observable';
-import AbortController from 'abort-controller';
-import fetch from 'node-fetch';
 import type { AppRouter } from './server';
-
-// polyfill
-const globalAny = global as any;
-globalAny.AbortController = AbortController;
-globalAny.fetch = fetch as any;
 
 const sleep = (ms = 100) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function main() {
   const url = `http://localhost:2021/trpc`;
 
-  const trpc = createTRPCProxyClient<AppRouter>({
+  const trpc = createTRPCClient<AppRouter>({
     links: [
       () =>
         ({ op, next }) => {
@@ -58,7 +51,7 @@ async function main() {
   }
   await sleep();
 
-  const authedClient = createTRPCProxyClient<AppRouter>({
+  const authedClient = createTRPCClient<AppRouter>({
     links: [
       loggerLink(),
       httpBatchLink({
@@ -78,4 +71,4 @@ async function main() {
   console.log('👌 should be a clean exit if everything is working right');
 }
 
-main();
+void main();

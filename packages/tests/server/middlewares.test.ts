@@ -1,5 +1,4 @@
-import { initTRPC } from '@trpc/server/src';
-import { expectTypeOf } from 'expect-type';
+import { experimental_trpcMiddleware, initTRPC } from '@trpc/server';
 
 test('decorate independently', () => {
   type User = {
@@ -9,7 +8,10 @@ test('decorate independently', () => {
   type Context = {
     user: User;
   };
-  const t = initTRPC.context<Context>().create();
+  type Meta = {
+    // ..
+  };
+  const t = initTRPC.meta<Meta>().context<Context>().create();
 
   const fooMiddleware = t.middleware((opts) => {
     expectTypeOf(opts.ctx.user).toEqualTypeOf<User>();
@@ -20,6 +22,16 @@ test('decorate independently', () => {
       },
     });
   });
+
+  t.procedure.use(fooMiddleware).query((opts) => {
+    expectTypeOf(opts.ctx).toEqualTypeOf<{
+      user: User;
+      foo: 'foo';
+    }>();
+  });
+
+  fooMiddleware;
+  // ^?
 
   const barMiddleware = fooMiddleware.unstable_pipe((opts) => {
     expectTypeOf(opts.ctx).toEqualTypeOf<{
@@ -53,6 +65,142 @@ test('decorate independently', () => {
       bar: 'bar';
       baz: 'baz';
     }>();
+  });
+});
+
+describe('standalone middleware', () => {
+  type Context = {
+    foo: 'foo';
+  };
+  type User = {
+    id: string;
+  };
+  const t = initTRPC.context<Context>().create();
+
+  test('without ctx', () => {
+    const addBarToCtxMiddleware = experimental_trpcMiddleware().create(
+      (opts) => {
+        expectTypeOf(opts.ctx).toEqualTypeOf<object | {}>();
+        return opts.next({
+          ctx: {
+            bar: 'bar' as const,
+          },
+        });
+      },
+    );
+
+    t.procedure.use(addBarToCtxMiddleware).query((opts) => {
+      expectTypeOf(opts.ctx).toEqualTypeOf<{
+        foo: 'foo';
+        bar: 'bar';
+      }>();
+    });
+  });
+
+  test('with context', () => {
+    const barNeedsFoo = experimental_trpcMiddleware<{
+      ctx: { foo: 'foo' };
+    }>().create((opts) => {
+      expectTypeOf(opts.ctx).toEqualTypeOf<{
+        foo: 'foo';
+      }>();
+      return opts.next({
+        ctx: {
+          bar: 'bar' as const,
+        },
+      });
+    });
+
+    t.procedure.use(barNeedsFoo).query((opts) => {
+      expectTypeOf(opts.ctx).toEqualTypeOf<{
+        foo: 'foo';
+        bar: 'bar';
+      }>();
+    });
+  });
+
+  test('mismatching context', () => {
+    const barNeedsSomethingElse = experimental_trpcMiddleware<{
+      ctx: { notFound: true };
+    }>().create((opts) => {
+      opts.ctx.notFound;
+      //    ^?
+      return opts.next({
+        ctx: {
+          bar: 'bar' as const,
+        },
+      });
+    });
+
+    // @ts-expect-error: notFound is not in context
+    t.procedure.use(barNeedsSomethingElse);
+  });
+
+  test('in middleware chain', () => {
+    const needsUser = experimental_trpcMiddleware<{
+      ctx: { user: User };
+    }>().create((opts) => {
+      opts.ctx.user.id;
+      //    ^?
+      return opts.next({
+        ctx: {
+          bar: 'bar' as const,
+        },
+      });
+    });
+
+    const withUser = t.procedure.use((opts) => {
+      const user: User = {
+        id: 'id',
+      };
+      return opts.next({
+        ctx: {
+          user,
+        },
+      });
+    });
+
+    withUser.use(needsUser).query((opts) => {
+      expectTypeOf(opts.ctx).toEqualTypeOf<{
+        foo: 'foo';
+        user: User;
+        bar: 'bar';
+      }>();
+    });
+  });
+
+  test('in pipe', () => {
+    const needsUser = experimental_trpcMiddleware<{
+      ctx: { user: User };
+    }>().create((opts) => {
+      opts.ctx.user.id;
+      //    ^?
+      return opts.next({
+        ctx: {
+          bar: 'bar' as const,
+        },
+      });
+    });
+
+    const withUser = t.middleware((opts) => {
+      const user: User = {
+        id: 'id',
+      };
+      return opts.next({
+        ctx: {
+          user,
+        },
+      });
+    });
+
+    withUser.unstable_pipe(needsUser).unstable_pipe((opts) => {
+      expectTypeOf(opts.ctx).toEqualTypeOf<{
+        foo: 'foo';
+        user: User;
+        bar: 'bar';
+      }>();
+      return opts.next();
+    });
   });
 });
 

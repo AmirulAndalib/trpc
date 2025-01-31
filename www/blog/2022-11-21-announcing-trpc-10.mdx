@@ -1,15 +1,14 @@
 ---
 slug: announcing-trpc-10
 title: Announcing tRPC v10
-author: Alex / KATT 🐱
-author_title: Creator of tRPC
-author_url: https://twitter.com/alexdotjs
-author_image_url: https://avatars1.githubusercontent.com/u/459267?s=460&v=4
+authors: [KATT]
 ---
 
 import { GithubSponsorButton } from '@site/src/components/GithubSponsorButton';
 
 tRPC provides a great developer experience by enforcing tight, full-stack type bindings through the power of TypeScript. No API contract drift, no code generation.
+
+{/* truncate */}
 
 Since our last major version release in August 2021, the tRPC community has seen substantial growth:
 
@@ -33,7 +32,7 @@ tRPC v10 embraces your IDE. We want to unify your types - but we've also brought
 
 With v10, you can:
 
-- Use _"Go to Definiton"_ to jump straight from your frontend consumer to your backend procedure
+- Use _"Go to Definition"_ to jump straight from your frontend consumer to your backend procedure
 - Use _"Rename Symbol"_ to give a new name to an input argument or procedure across your whole application
 - [Infer types more easily](https://trpc.io/docs/v10/infer-types) for when you'd like to use your tRPC types in your application manually
 
@@ -41,7 +40,7 @@ With v10, you can:
 
 In v10, we've revisited the syntax for how you define your backend procedures, opening up more opportunities to bring in your desired logic in healthy ways. This version of tRPC features:
 
-- [Reusable middlewares](https://trpc.io/docs/v10/middlewares) with [Context Swapping](https://trpc.io/docs/v10/middlewares#context-swapping)
+- [Reusable middlewares](https://trpc.io/docs/v10/middlewares) with [Context Extension](https://trpc.io/docs/v10/middlewares#context-extension)
 - [Chainable & reusable procedures](https://trpc.io/docs/v10/procedures#reusable-base-publicprocedures) with the ability to use [multiple input parsers](https://trpc.io/docs/v10/procedures#multiple-input-parsers)
 - Flexible [error handling](https://trpc.io/docs/v10/error-handling) with [custom error formatting](https://trpc.io/docs/v10/error-formatting)
 - [Procedure metadata](https://trpc.io/docs/v10/metadata) to decorate your procedures with more information
@@ -62,7 +61,7 @@ We've also put in a lot of work to make the migration experience as straightforw
 
 A rich set of sub-libraries is continuing to form around tRPC. Here are a few examples:
 
-- [trpc-openapi](https://github.com/jlalmes/trpc-openapi) to easily create REST-compataible endpoints
+- [trpc-openapi](https://github.com/jlalmes/trpc-openapi) to easily create REST-compatible endpoints
 - [create-t3-app](https://github.com/t3-oss/create-t3-app) to bootstrap a full-stack Next.js application with tRPC
 - [create-t3-turbo](https://github.com/t3-oss/create-t3-turbo) to kickstart your next React Native app with tRPC
 - [trpc-chrome](https://github.com/jlalmes/trpc-chrome) for building Chrome extensions using tRPC

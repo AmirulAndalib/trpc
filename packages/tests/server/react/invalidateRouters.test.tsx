@@ -3,7 +3,7 @@ import { getServerAndReactClient } from './__reactHelpers';
 import { useIsFetching } from '@tanstack/react-query';
 import { render, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { initTRPC } from '@trpc/server/src';
+import { initTRPC } from '@trpc/server';
 import { konn } from 'konn';
 import React from 'react';
 import { z } from 'zod';
@@ -17,34 +17,34 @@ export type Post = {
 const ctx = konn()
   .beforeEach(() => {
     /**
-     * An object of jest functions we can use to track how many times things
+     * An object of Vitest functions we can use to track how many times things
      * have been called during invalidation etc.
      */
     const resolvers = {
       user: {
-        listAll: jest.fn(),
+        listAll: vi.fn(),
         byId: {
-          '1': jest.fn(),
-          '2': jest.fn(),
+          '1': vi.fn(),
+          '2': vi.fn(),
         },
         details: {
           getByUserId: {
-            '1': jest.fn(),
-            '2': jest.fn(),
+            '1': vi.fn(),
+            '2': vi.fn(),
           },
         },
       },
-      'user.current.email.getMain': jest.fn(),
+      'user.current.email.getMain': vi.fn(),
       posts: {
-        getAll: jest.fn(),
-        getAllInfinite: jest.fn(),
+        getAll: vi.fn(),
+        getAllInfinite: vi.fn(),
         byId: {
-          '1': jest.fn(),
-          '2': jest.fn(),
+          '1': vi.fn(),
+          '2': vi.fn(),
         },
         'comments.getById': {
-          1: jest.fn(),
-          2: jest.fn(),
+          1: vi.fn(),
+          2: vi.fn(),
         },
       },
     };
@@ -117,7 +117,7 @@ const ctx = konn()
       posts: t.router({
         getAll: t.procedure.query(() => {
           resolvers.posts.getAll();
-          return `posts.getAll` as const;
+          return `posts.getAll`;
         }),
 
         getAllInfinite: t.procedure
@@ -133,8 +133,7 @@ const ctx = konn()
             const limit = input.limit ?? 50;
             const { cursor } = input;
             let nextCursor: typeof cursor = null;
-            for (let index = 0; index < db.posts.length; index++) {
-              const element = db.posts[index]!;
+            for (const element of db.posts) {
               if (cursor != null && element.createdAt < cursor) {
                 continue;
               }
@@ -146,7 +145,7 @@ const ctx = konn()
             const last = items[items.length - 1];
             const nextIndex = db.posts.findIndex((item) => item === last) + 1;
             if (db.posts[nextIndex]) {
-              nextCursor = db.posts[nextIndex]!.createdAt;
+              nextCursor = db.posts[nextIndex].createdAt;
             }
             return {
               items,
@@ -191,36 +190,43 @@ const ctx = konn()
  * A hook that will subscribe the component to all the hooks for the
  * invalidation test.
  */
-const useSetupAllTestHooks = (proxy: typeof ctx['proxy']) => {
+const useSetupAllTestHooks = (client: (typeof ctx)['client']) => {
   const hooks = {
     user: {
-      listAll: proxy.user.listAll.useQuery(),
+      listAll: client.user.listAll.useQuery(),
       byId: {
-        '1': proxy.user.byId.useQuery({ userId: '1' }),
-        '2': proxy.user.byId.useQuery({ userId: '2' }),
+        '1': client.user.byId.useQuery({ userId: '1' }),
+        '2': client.user.byId.useQuery({ userId: '2' }),
       },
       details: {
         getByUserId: {
-          '1': proxy.user.details.getByUserId.useQuery({ userId: '1' }),
-          '2': proxy.user.details.getByUserId.useQuery({ userId: '2' }),
+          '1': client.user.details.getByUserId.useQuery({ userId: '1' }),
+          '2': client.user.details.getByUserId.useQuery({ userId: '2' }),
         },
       },
     },
-    'user.current.email.getMain': proxy['user.current.email.getMain'].useQuery({
-      getExtraDetails: false,
-    }), // Really not a fan of allowing `.` in property names...
+    'user.current.email.getMain': client['user.current.email.getMain'].useQuery(
+      {
+        getExtraDetails: false,
+      },
+    ), // Really not a fan of allowing `.` in property names...
     posts: {
-      getAll: proxy.posts.getAll.useQuery(),
-      getAllInfinite: proxy.posts.getAllInfinite.useInfiniteQuery({
-        limit: 1,
-      }),
+      getAll: client.posts.getAll.useQuery(),
+      getAllInfinite: client.posts.getAllInfinite.useInfiniteQuery(
+        {
+          limit: 1,
+        },
+        {
+          getNextPageParam: (lastPage) => lastPage.nextCursor,
+        },
+      ),
       byId: {
-        '1': proxy.posts.byId.useQuery({ id: '1' }),
-        '2': proxy.posts.byId.useQuery({ id: '2' }),
+        '1': client.posts.byId.useQuery({ id: '1' }),
+        '2': client.posts.byId.useQuery({ id: '2' }),
       },
       'comments.getById': {
-        1: proxy.posts['comments.getById'].useQuery({ id: 1 }),
-        2: proxy.posts['comments.getById'].useQuery({ id: 2 }),
+        1: client.posts['comments.getById'].useQuery({ id: 1 }),
+        2: client.posts['comments.getById'].useQuery({ id: 2 }),
       },
     },
   };
@@ -233,12 +239,12 @@ const useSetupAllTestHooks = (proxy: typeof ctx['proxy']) => {
 //---------------------------------------------------------------------------------------------------
 
 test('Check invalidation of Whole router', async () => {
-  const { proxy, App, resolvers } = ctx;
+  const { client, App, resolvers } = ctx;
   function MyComponent() {
-    useSetupAllTestHooks(ctx.proxy);
+    useSetupAllTestHooks(ctx.client);
     const isFetching = useIsFetching();
 
-    const utils = proxy.useContext();
+    const utils = client.useUtils();
 
     return (
       <div>
@@ -298,12 +304,12 @@ test('Check invalidation of Whole router', async () => {
 //---------------------------------------------------------------------------------------------------
 
 test('Check invalidating at router root invalidates all', async () => {
-  const { proxy, App, resolvers } = ctx;
+  const { client, App, resolvers } = ctx;
   function MyComponent() {
-    useSetupAllTestHooks(ctx.proxy);
+    useSetupAllTestHooks(ctx.client);
     const isFetching = useIsFetching();
 
-    const utils = proxy.useContext();
+    const utils = client.useUtils();
 
     return (
       <div>
@@ -357,12 +363,12 @@ test('Check invalidating at router root invalidates all', async () => {
 //---------------------------------------------------------------------------------------------------
 
 test('test TS types of the input variable', async () => {
-  const { proxy, App, resolvers } = ctx;
+  const { client, App, resolvers } = ctx;
   function MyComponent() {
-    useSetupAllTestHooks(ctx.proxy);
+    useSetupAllTestHooks(ctx.client);
     const isFetching = useIsFetching();
 
-    const utils = proxy.useContext();
+    const utils = client.useUtils();
 
     ignoreErrors(() => {
       // @ts-expect-error from user.details should not see id from `posts.byid`

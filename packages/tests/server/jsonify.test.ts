@@ -1,6 +1,5 @@
 import { routerToServerAndClientNew } from './___testHelpers';
 import { initTRPC } from '@trpc/server';
-import { expectTypeOf } from 'expect-type';
 import { konn } from 'konn';
 import superjson from 'superjson';
 
@@ -31,7 +30,7 @@ describe('no transformer specified', () => {
     })
     .done();
   test('it works', async () => {
-    const result = await ctx.proxy.happy.query();
+    const result = await ctx.client.happy.query();
 
     expectTypeOf(result).not.toBeAny();
 
@@ -91,7 +90,7 @@ describe('with transformer specified', () => {
     })
     .done();
   test('it works', async () => {
-    const result = await ctx.proxy.happy.query();
+    const result = await ctx.client.happy.query();
 
     expectTypeOf(result.date).toEqualTypeOf<Date>();
     result.set;
