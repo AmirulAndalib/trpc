@@ -1,14 +1,18 @@
-import Link, { Props as LinkProps } from '@docusaurus/Link';
+import type { Props as LinkProps } from '@docusaurus/Link';
+import Link from '@docusaurus/Link';
 import { clsx } from 'clsx';
 import React from 'react';
 
-type AnchorProps = LinkProps & { href: string };
-type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> &
-  ({ type: 'submit' } | { onClick: React.MouseEvent<HTMLButtonElement> });
-
-type Props = (AnchorProps | ButtonProps) & {
-  variant: 'primary' | 'secondary' | 'tertiary';
+type ExternalLink = React.AnchorHTMLAttributes<HTMLAnchorElement> & {
+  external: true;
 };
+type InternalLink = LinkProps & { href: string };
+type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> &
+  ({ onClick: React.MouseEvent<HTMLButtonElement> } | { type: 'submit' });
+
+type Props = {
+  variant: 'primary' | 'secondary' | 'tertiary';
+} & (InternalLink | ButtonProps | ExternalLink);
 
 export const Button = ({
   variant,
@@ -17,7 +21,7 @@ export const Button = ({
   ...props
 }: Props) => {
   const className = clsx(
-    'inline-grid appearance-none cursor-pointer text-sm sm:text-base font-bold tracking-normal px-2 sm:px-4 py-1.5 sm:py-2 gap-1 sm:gap-1.5 grid-flow-col rounded-lg shadow-xl shadow-sky-500/20 no-underline hover:no-underline justify-center items-center transition-all duration-300',
+    'inline-grid cursor-pointer appearance-none grid-flow-col items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-sm font-bold tracking-normal no-underline shadow-xl shadow-sky-500/20 transition-all duration-300 hover:no-underline sm:gap-1.5 sm:px-4 sm:py-2 sm:text-base',
     {
       ['bg-primary text-white hover:text-white hover:bg-primary-dark']:
         variant === 'primary',
@@ -29,17 +33,29 @@ export const Button = ({
     _className,
   );
 
+  if ('external' in props) {
+    const {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      external,
+      ...rest
+    } = props;
+    return (
+      <a {...rest} className={className}>
+        {children}
+      </a>
+    );
+  }
   if ('href' in props) {
     const rel = clsx({ ['noopener']: props.target === '_blank' });
     return (
-      <Link {...props} className={className} rel={props.rel || rel}>
+      <Link {...props} className={className} rel={props.rel ?? rel}>
         {children}
       </Link>
     );
   }
 
   return (
-    <button {...props} className={className} type={props.type || 'button'}>
+    <button {...props} className={className} type={props.type ?? 'button'}>
       {children}
     </button>
   );

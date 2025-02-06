@@ -1,20 +1,23 @@
 import { routerToServerAndClientNew } from '../___testHelpers';
 import { createQueryClient, createQueryClientConfig } from '../__queryClient';
 import { QueryClientProvider } from '@tanstack/react-query';
+import type { TRPCWebSocketClient } from '@trpc/client';
 import {
-  TRPCWebSocketClient,
   createWSClient,
+  getUntypedClient,
   httpBatchLink,
   splitLink,
   wsLink,
 } from '@trpc/client';
 import { createTRPCReact } from '@trpc/react-query';
-import { OutputWithCursor } from '@trpc/react-query/shared';
-import { TRPCError, initTRPC } from '@trpc/server';
-import { Observable, Observer, observable } from '@trpc/server/observable';
+import type { OutputWithCursor } from '@trpc/react-query/shared';
+import { initTRPC, TRPCError } from '@trpc/server';
+import type { Observable, Observer } from '@trpc/server/observable';
+import { observable } from '@trpc/server/observable';
 import hash from 'hash-sum';
-import React, { ReactNode } from 'react';
-import { ZodError, z } from 'zod';
+import type { ReactNode } from 'react';
+import React from 'react';
+import { z, ZodError } from 'zod';
 
 export type Post = {
   id: string;
@@ -27,7 +30,7 @@ function subscriptionPullFactory<TOutput>(opts: {
    * The interval of how often the function should run
    */
   intervalMs: number;
-  pull(emit: Observer<TOutput, unknown>): void | Promise<void>;
+  pull(emit: Observer<TOutput, unknown>): Promise<void> | void;
 }): Observable<TOutput, unknown> {
   let timer: any;
   let stopped = false;
@@ -49,7 +52,9 @@ function subscriptionPullFactory<TOutput>(opts: {
   }
 
   return observable<TOutput>((emit) => {
-    _pull(emit).catch((err) => emit.error(err as Error));
+    _pull(emit).catch((err) => {
+      emit.error(err as Error);
+    });
     return () => {
       clearTimeout(timer);
       stopped = true;
@@ -67,9 +72,10 @@ export function createAppRouter() {
     ],
   };
   const postLiveInputs: unknown[] = [];
-  const createContext = jest.fn(() => ({}));
-  const allPosts = jest.fn();
-  const postById = jest.fn();
+  const createContext = vi.fn(() => ({}));
+  const allPosts = vi.fn();
+  const postById = vi.fn();
+  const paginatedPosts = vi.fn();
   let wsClient: TRPCWebSocketClient = null as any;
 
   const t = initTRPC.create({
@@ -102,18 +108,20 @@ export function createAppRouter() {
     }),
     paginatedPosts: t.procedure
       .input(
-        z.object({
-          limit: z.number().min(1).max(100).nullish(),
-          cursor: z.number().nullish(),
-        }),
+        z
+          .object({
+            limit: z.number().min(1).max(100).default(50),
+            cursor: z.number().nullish().default(null),
+          })
+          .default({}),
       )
       .query(({ input }) => {
+        paginatedPosts(input);
         const items: typeof db.posts = [];
-        const limit = input.limit ?? 50;
+        const limit = input.limit;
         const { cursor } = input;
         let nextCursor: typeof cursor = null;
-        for (let index = 0; index < db.posts.length; index++) {
-          const element = db.posts[index]!;
+        for (const element of db.posts) {
           if (cursor != null && element.createdAt < cursor) {
             continue;
           }
@@ -125,11 +133,56 @@ export function createAppRouter() {
         const last = items[items.length - 1];
         const nextIndex = db.posts.findIndex((item) => item === last) + 1;
         if (db.posts[nextIndex]) {
-          nextCursor = db.posts[nextIndex]!.createdAt;
+          nextCursor = db.posts[nextIndex].createdAt;
         }
         return {
           items,
           nextCursor,
+        };
+      }),
+    biDirectionalPaginatedPosts: t.procedure
+      .input(
+        z.object({
+          limit: z.number().min(1).max(100).default(50),
+          cursor: z.number().nullish().default(null),
+          direction: z.union([z.literal('forward'), z.literal('backward')]),
+        }),
+      )
+      .query(({ input }) => {
+        paginatedPosts(input);
+        const items: typeof db.posts = [];
+        const limit = input.limit;
+        const { cursor } = input;
+        let nextCursor: typeof cursor = null;
+        let prevCursor: typeof cursor = null;
+        for (const element of db.posts) {
+          if (
+            cursor != null &&
+            (input.direction === 'forward'
+              ? element.createdAt < cursor
+              : element.createdAt > cursor)
+          ) {
+            continue;
+          }
+          items.push(element);
+          if (items.length >= limit) {
+            break;
+          }
+        }
+        const last = items[items.length - 1];
+        const first = items[0];
+        const nextIndex = db.posts.findIndex((item) => item === last) + 1;
+        const prevIndex = db.posts.findIndex((item) => item === first) - 1;
+        if (db.posts[nextIndex]) {
+          nextCursor = db.posts[nextIndex].createdAt;
+        }
+        if (db.posts[prevIndex]) {
+          prevCursor = db.posts[prevIndex].createdAt;
+        }
+        return {
+          items,
+          nextCursor,
+          prevCursor,
         };
       }),
 
@@ -212,17 +265,14 @@ export function createAppRouter() {
   });
 
   const linkSpy = {
-    up: jest.fn(),
-    down: jest.fn(),
+    up: vi.fn(),
+    down: vi.fn(),
   };
   const { client, trpcClientOptions, close } = routerToServerAndClientNew(
     appRouter,
     {
       server: {
         createContext,
-        batching: {
-          enabled: true,
-        },
       },
       client({ httpUrl, wssUrl }) {
         wsClient = createWSClient({
@@ -276,7 +326,7 @@ export function createAppRouter() {
 
   function App(props: { children: ReactNode }) {
     return (
-      <trpc.Provider {...{ queryClient, client }}>
+      <trpc.Provider {...{ queryClient, client: getUntypedClient(client) }}>
         <QueryClientProvider client={queryClient}>
           {props.children}
         </QueryClientProvider>
@@ -295,6 +345,7 @@ export function createAppRouter() {
     resolvers: {
       postById,
       allPosts,
+      paginatedPosts,
     },
     queryClient,
     createContext,

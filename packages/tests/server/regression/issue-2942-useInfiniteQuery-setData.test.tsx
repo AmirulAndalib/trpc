@@ -1,12 +1,9 @@
 import { getServerAndReactClient } from '../react/__reactHelpers';
-import {
-  DehydratedState,
-  InfiniteData,
-  dehydrate,
-} from '@tanstack/react-query';
+import type { DehydratedState, InfiniteData } from '@tanstack/react-query';
+import { dehydrate } from '@tanstack/react-query';
 import { render, waitFor } from '@testing-library/react';
-import { initTRPC } from '@trpc/server/src';
-import { expectTypeOf } from 'expect-type';
+import userEvent from '@testing-library/user-event';
+import { initTRPC } from '@trpc/server';
 import { konn } from 'konn';
 import React from 'react';
 import { z } from 'zod';
@@ -46,10 +43,10 @@ const ctx = konn()
   .done();
 
 test('with input', async () => {
-  const { App, proxy } = ctx;
+  const { App, client } = ctx;
   function MyComponent() {
-    const utils = proxy.useContext();
-    const query1 = proxy.post.list.useInfiniteQuery(
+    const utils = client.useContext();
+    const query1 = client.post.list.useInfiniteQuery(
       {
         foo: 'bar',
       },
@@ -65,13 +62,15 @@ test('with input', async () => {
       return <>...</>;
     }
 
-    type TData = typeof query1['data'];
-    expectTypeOf<TData>().toMatchTypeOf<
-      InfiniteData<{
-        items: typeof fixtureData;
-        next?: number | undefined;
-      }>
-    >();
+    expectTypeOf<
+      InfiniteData<
+        {
+          items: typeof fixtureData;
+          next?: number | undefined;
+        },
+        number | undefined
+      >
+    >(query1.data);
 
     return (
       <>
@@ -105,7 +104,8 @@ test('with input', async () => {
   const before: DehydratedState['queries'] = JSON.parse(
     JSON.stringify(dehydrate(ctx.queryClient).queries),
   );
-  utils.getByTestId('setInfinite').click();
+
+  await userEvent.click(utils.getByTestId('setInfinite'));
   await new Promise((resolve) => setTimeout(resolve, 100));
 
   const after: DehydratedState['queries'] = JSON.parse(
@@ -127,10 +127,10 @@ test('with input', async () => {
 });
 
 test('w/o input', async () => {
-  const { App, proxy } = ctx;
+  const { App, client } = ctx;
   function MyComponent() {
-    const utils = proxy.useContext();
-    const query1 = proxy.post.list.useInfiniteQuery(
+    const utils = client.useContext();
+    const query1 = client.post.list.useInfiniteQuery(
       {},
       {
         getNextPageParam(lastPage) {
@@ -144,12 +144,15 @@ test('w/o input', async () => {
       return <>...</>;
     }
 
-    type TData = typeof query1['data'];
+    type TData = (typeof query1)['data'];
     expectTypeOf<TData>().toMatchTypeOf<
-      InfiniteData<{
-        items: typeof fixtureData;
-        next?: number | undefined;
-      }>
+      InfiniteData<
+        {
+          items: typeof fixtureData;
+          next?: number | undefined;
+        },
+        number | undefined
+      >
     >();
 
     return (
@@ -178,7 +181,7 @@ test('w/o input', async () => {
   const before: DehydratedState['queries'] = JSON.parse(
     JSON.stringify(dehydrate(ctx.queryClient).queries),
   );
-  utils.getByTestId('setInfinite').click();
+  await userEvent.click(utils.getByTestId('setInfinite'));
   await new Promise((resolve) => setTimeout(resolve, 100));
 
   const after: DehydratedState['queries'] = JSON.parse(

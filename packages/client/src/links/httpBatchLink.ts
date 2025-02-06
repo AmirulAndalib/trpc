@@ -1,99 +1,110 @@
-import { AnyRouter, ProcedureType } from '@trpc/server';
+import type { AnyRouter, ProcedureType } from '@trpc/server';
 import { observable } from '@trpc/server/observable';
-import { TRPCClientError } from '../TRPCClientError';
+import { transformResult } from '@trpc/server/unstable-core-do-not-import';
+import type { BatchLoader } from '../internals/dataLoader';
 import { dataLoader } from '../internals/dataLoader';
+import { allAbortSignals } from '../internals/signals';
+import type { NonEmptyArray } from '../internals/types';
+import { TRPCClientError } from '../TRPCClientError';
+import type { HTTPBatchLinkOptions } from './HTTPBatchLinkOptions';
+import type { HTTPResult } from './internals/httpUtils';
 import {
-  HTTPLinkOptions,
-  HTTPResult,
   getUrl,
-  httpRequest,
+  jsonHttpRequester,
   resolveHTTPLinkOptions,
 } from './internals/httpUtils';
-import { transformResult } from './internals/transformResult';
-import { TRPCLink } from './types';
+import type { Operation, TRPCLink } from './types';
 
-export interface HttpBatchLinkOptions extends HTTPLinkOptions {
-  maxURLLength?: number;
-}
-
+/**
+ * @see https://trpc.io/docs/client/links/httpBatchLink
+ */
 export function httpBatchLink<TRouter extends AnyRouter>(
-  opts: HttpBatchLinkOptions,
+  opts: HTTPBatchLinkOptions<TRouter['_def']['_config']['$types']>,
 ): TRPCLink<TRouter> {
   const resolvedOpts = resolveHTTPLinkOptions(opts);
-  // initialized config
-  return (runtime) => {
-    type BatchOperation = { id: number; path: string; input: unknown };
+  const maxURLLength = opts.maxURLLength ?? Infinity;
 
-    const maxURLLength = opts.maxURLLength || Infinity;
+  return () => {
+    const batchLoader = (
+      type: ProcedureType,
+    ): BatchLoader<Operation, HTTPResult> => {
+      return {
+        validate(batchOps) {
+          if (maxURLLength === Infinity) {
+            // escape hatch for quick calcs
+            return true;
+          }
+          const path = batchOps.map((op) => op.path).join(',');
+          const inputs = batchOps.map((op) => op.input);
 
-    const batchLoader = (type: ProcedureType) => {
-      const validate = (batchOps: BatchOperation[]) => {
-        if (maxURLLength === Infinity) {
-          // escape hatch for quick calcs
-          return true;
-        }
-        const path = batchOps.map((op) => op.path).join(',');
-        const inputs = batchOps.map((op) => op.input);
+          const url = getUrl({
+            ...resolvedOpts,
+            type,
+            path,
+            inputs,
+            signal: null,
+          });
 
-        const url = getUrl({
-          ...resolvedOpts,
-          runtime,
-          type,
-          path,
-          inputs,
-        });
-        return url.length <= maxURLLength;
+          return url.length <= maxURLLength;
+        },
+        async fetch(batchOps) {
+          const path = batchOps.map((op) => op.path).join(',');
+          const inputs = batchOps.map((op) => op.input);
+          const signal = allAbortSignals(...batchOps.map((op) => op.signal));
+
+          const res = await jsonHttpRequester({
+            ...resolvedOpts,
+            path,
+            inputs,
+            type,
+            headers() {
+              if (!opts.headers) {
+                return {};
+              }
+              if (typeof opts.headers === 'function') {
+                return opts.headers({
+                  opList: batchOps as NonEmptyArray<Operation>,
+                });
+              }
+              return opts.headers;
+            },
+            signal,
+          });
+          const resJSON = Array.isArray(res.json)
+            ? res.json
+            : batchOps.map(() => res.json);
+          const result = resJSON.map((item) => ({
+            meta: res.meta,
+            json: item,
+          }));
+          return result;
+        },
       };
-
-      const fetch = (batchOps: BatchOperation[]) => {
-        const path = batchOps.map((op) => op.path).join(',');
-        const inputs = batchOps.map((op) => op.input);
-
-        const { promise, cancel } = httpRequest({
-          ...resolvedOpts,
-          runtime,
-          type,
-          path,
-          inputs,
-        });
-
-        return {
-          promise: promise.then((res) => {
-            const resJSON = Array.isArray(res.json)
-              ? res.json
-              : batchOps.map(() => res.json);
-
-            const result = resJSON.map((item) => ({
-              meta: res.meta,
-              json: item,
-            }));
-
-            return result;
-          }),
-          cancel,
-        };
-      };
-
-      return { validate, fetch };
     };
 
-    const query = dataLoader<BatchOperation, HTTPResult>(batchLoader('query'));
-    const mutation = dataLoader<BatchOperation, HTTPResult>(
-      batchLoader('mutation'),
-    );
-    const subscription = dataLoader<BatchOperation, HTTPResult>(
-      batchLoader('subscription'),
-    );
+    const query = dataLoader(batchLoader('query'));
+    const mutation = dataLoader(batchLoader('mutation'));
 
-    const loaders = { query, subscription, mutation };
+    const loaders = { query, mutation };
     return ({ op }) => {
       return observable((observer) => {
+        /* istanbul ignore if -- @preserve */
+        if (op.type === 'subscription') {
+          throw new Error(
+            'Subscriptions are unsupported by `httpLink` - use `httpSubscriptionLink` or `wsLink`',
+          );
+        }
         const loader = loaders[op.type];
-        const { promise, cancel } = loader.load(op);
+        const promise = loader.load(op);
 
+        let _res = undefined as HTTPResult | undefined;
         promise
           .then((res) => {
-            const transformed = transformResult(res.json, runtime);
+            _res = res;
+            const transformed = transformResult(
+              res.json,
+              resolvedOpts.transformer.output,
+            );
 
             if (!transformed.ok) {
               observer.error(
@@ -109,10 +120,16 @@ export function httpBatchLink<TRouter extends AnyRouter>(
             });
             observer.complete();
           })
-          .catch((err) => observer.error(TRPCClientError.from(err)));
+          .catch((err) => {
+            observer.error(
+              TRPCClientError.from(err, {
+                meta: _res?.meta,
+              }),
+            );
+          });
 
         return () => {
-          cancel();
+          // noop
         };
       });
     };

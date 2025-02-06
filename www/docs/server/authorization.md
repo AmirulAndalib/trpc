@@ -2,7 +2,7 @@
 id: authorization
 title: Authorization
 sidebar_label: Authorization
-slug: /authorization
+slug: /server/authorization
 ---
 
 The `createContext` function is called for each incoming request, so here you can add contextual information about the calling user from the request object.
@@ -10,8 +10,6 @@ The `createContext` function is called for each incoming request, so here you ca
 ## Create context from request headers
 
 ```ts title='server/context.ts'
-import * as trpc from '@trpc/server';
-import { inferAsyncReturnType } from '@trpc/server';
 import * as trpcNext from '@trpc/server/adapters/next';
 import { decodeAndVerifyJwtToken } from './somewhere/in/your/app/utils';
 
@@ -38,14 +36,14 @@ export async function createContext({
     user,
   };
 }
-type Context = inferAsyncReturnType<typeof createContext>;
+export type Context = Awaited<ReturnType<typeof createContext>>;
 ```
 
 ## Option 1: Authorize using resolver
 
 ```ts title='server/routers/_app.ts'
-import { TRPCError, initTRPC } from '@trpc/server';
-import { Context } from '../context';
+import { initTRPC, TRPCError } from '@trpc/server';
+import type { Context } from '../context';
 
 export const t = initTRPC.context<Context>().create();
 
@@ -53,10 +51,10 @@ const appRouter = t.router({
   // open for anyone
   hello: t.procedure
     .input(z.string().nullish())
-    .query(({ input, ctx }) => `hello ${input ?? ctx.user?.name ?? 'world'}`),
+    .query((opts) => `hello ${opts.input ?? opts.ctx.user?.name ?? 'world'}`),
   // checked in resolver
-  secret: t.procedure.query(({ ctx }) => {
-    if (!ctx.user) {
+  secret: t.procedure.query((opts) => {
+    if (!opts.ctx.user) {
       throw new TRPCError({ code: 'UNAUTHORIZED' });
     }
     return {
@@ -69,32 +67,39 @@ const appRouter = t.router({
 ## Option 2: Authorize using middleware
 
 ```ts title='server/routers/_app.ts'
-import { TRPCError, initTRPC } from '@trpc/server';
+import { initTRPC, TRPCError } from '@trpc/server';
+import type { Context } from '../context';
 
 export const t = initTRPC.context<Context>().create();
 
-const isAuthed = t.middleware(({ next, ctx }) => {
-  if (!ctx.user?.isAdmin) {
-    throw new TRPCError({ code: 'UNAUTHORIZED' });
-  }
-  return next({
-    ctx: {
-      user: ctx.user,
-    },
-  });
-});
-
 // you can reuse this for any procedure
-export const protectedProcedure = t.procedure.use(isAuthed);
+export const protectedProcedure = t.procedure.use(
+  async function isAuthed(opts) {
+    const { ctx } = opts;
+    // `ctx.user` is nullable
+    if (!ctx.user) {
+      //     ^?
+      throw new TRPCError({ code: 'UNAUTHORIZED' });
+    }
+
+    return opts.next({
+      ctx: {
+        // ✅ user value is known to be non-null now
+        user: ctx.user,
+        // ^?
+      },
+    });
+  },
+);
 
 t.router({
   // this is accessible for everyone
   hello: t.procedure
     .input(z.string().nullish())
-    .query(({ input, ctx }) => `hello ${input ?? ctx.user?.name ?? 'world'}`),
+    .query((opts) => `hello ${opts.input ?? opts.ctx.user?.name ?? 'world'}`),
   admin: t.router({
     // this is accessible only to admins
-    secret: protectedProcedure.query(({ ctx }) => {
+    secret: protectedProcedure.query((opts) => {
       return {
         secret: 'sauce',
       };

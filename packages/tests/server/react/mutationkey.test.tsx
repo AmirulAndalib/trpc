@@ -25,10 +25,10 @@ const ctx = konn()
 
 describe('mutation keys', () => {
   test('can grab from cache using correct key', async () => {
-    const { proxy, App } = ctx;
+    const { client, App } = ctx;
 
     function MyComponent() {
-      const postCreate = proxy.post.create.useMutation();
+      const postCreate = client.post.create.useMutation();
 
       const mutationKey = [['post', 'create']]; // TODO: Maybe add a getter later?
       const isMutating = useIsMutating({ mutationKey });
@@ -45,7 +45,12 @@ describe('mutation keys', () => {
 
       return (
         <div>
-          <button onClick={() => postCreate.mutate()} data-testid="mutate" />
+          <button
+            onClick={() => {
+              postCreate.mutate();
+            }}
+            data-testid="mutate"
+          />
           <pre data-testid="status">{isMutating}</pre>
         </div>
       );
@@ -68,7 +73,7 @@ describe('mutation keys', () => {
     });
 
     // should be mutating after button press
-    userEvent.click(utils.getByTestId('mutate'));
+    await userEvent.click(utils.getByTestId('mutate'));
     await waitFor(() => {
       expect(utils.getByTestId('status')).toHaveTextContent('1');
     });

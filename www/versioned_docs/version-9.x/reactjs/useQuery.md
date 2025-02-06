@@ -5,7 +5,7 @@ sidebar_label: useQuery()
 slug: /react-queries
 ---
 
-> The hooks provided by `@trpc/react` are a thin wrapper around React Query. For in-depth information about options and usage patterns, refer to their docs on [Queries](https://react-query.tanstack.com/guides/queries).
+> The hooks provided by `@trpc/react` are a thin wrapper around React Query. For in-depth information about options and usage patterns, refer to their docs on [Queries](https://tanstack.com/query/v3/docs/react/guides/queries).
 
 ```tsx
 function useQuery(
@@ -20,7 +20,8 @@ You'll notice that you get autocompletion on the `path` and automatic typesafety
 
 ### Example
 
-<details><summary>Backend code</summary>
+<details>
+<summary>Backend code</summary>
 
 ```tsx title='server/routers/_app.ts'
 import * as trpc from '@trpc/server';

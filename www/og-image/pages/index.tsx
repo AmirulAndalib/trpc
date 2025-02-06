@@ -1,6 +1,6 @@
 import Head from 'next/head';
 import { useEffect, useState } from 'react';
-import { blogParams, docsParams } from 'utils/zodParams';
+import { blogParams, docsParams } from '../utils/zodParams';
 
 const ogImageUrl = `${
   process.env.VERCEL_URL ? 'https://' + process.env.VERCEL_URL : ''
@@ -27,7 +27,7 @@ export default function Page() {
         <meta data-rh="true" name="twitter:image" content={ogImageUrl} />
       </Head>
       <h1>A page with Open Graph Image.</h1>
-      <main className="grid grid-cols-2 grid-flow-row">
+      <main className="grid grid-flow-row grid-cols-2">
         <div>
           <h2>Landing</h2>
           <img src={`/api/landing?random=${nonce}`} />
@@ -60,7 +60,7 @@ export default function Page() {
           />
         </div>
       </main>
-      {/* eslint-disable-next-line react/no-unknown-property */}
+      {}
       <style jsx>{`
         img {
           max-width: 100%;

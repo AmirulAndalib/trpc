@@ -1,23 +1,23 @@
 import { createQueryClient } from '../__queryClient';
 import { createAppRouter } from './__testHelpers';
 import { QueryClientProvider } from '@tanstack/react-query';
-import '@testing-library/jest-dom';
 import { render, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import React, { useState } from 'react';
 
 let factory: ReturnType<typeof createAppRouter>;
 beforeEach(() => {
   factory = createAppRouter();
 });
-afterEach(() => {
-  factory.close();
+afterEach(async () => {
+  await factory.close();
 });
 
 describe('setQueryData()', () => {
   test('without & without callback', async () => {
-    const { trpc, client } = factory;
+    const { trpc, client, App } = factory;
     function MyComponent() {
-      const utils = trpc.useContext();
+      const utils = trpc.useUtils();
       const allPostsQuery = trpc.allPosts.useQuery(undefined, {
         enabled: false,
       });
@@ -67,20 +67,14 @@ describe('setQueryData()', () => {
         </>
       );
     }
-    function App() {
-      const [queryClient] = useState(() => createQueryClient());
-      return (
-        <trpc.Provider {...{ queryClient, client }}>
-          <QueryClientProvider client={queryClient}>
-            <MyComponent />
-          </QueryClientProvider>
-        </trpc.Provider>
-      );
-    }
 
-    const utils = render(<App />);
+    const utils = render(
+      <App>
+        <MyComponent />
+      </App>,
+    );
 
-    utils.getByTestId('setQueryData').click();
+    await userEvent.click(utils.getByTestId('setQueryData'));
 
     await waitFor(() => {
       expect(utils.container).toHaveTextContent('allPost.title');

@@ -9,11 +9,9 @@ const t = initTRPC.create();
 const appRouter = t.router({
   greeting: t.procedure
     .input(z.object({ name: z.string() }))
-    .query((req) => {
-      const { input } = req;
-      return {
-        text: `Hello ${input.name}` as const,
-      };
+    .query((opts) => {
+      const { input } = opts;
+      return `Hello ${input.name}` as const;
   }),
 });
 
@@ -24,14 +22,14 @@ export type AppRouter = typeof appRouter;
 // @target: esnext
 // @include: server
 // @filename: client.ts
-import { createTRPCProxyClient, httpBatchLink } from '@trpc/client';
+import { createTRPCClient, httpBatchLink } from '@trpc/client';
 import type { AppRouter } from './server';
 
 // ---cut---
-const trpc = createTRPCProxyClient<AppRouter>({
+const trpc = createTRPCClient<AppRouter>({
   links: [
     httpBatchLink({
-      url: 'http://localhost:3000/trpc',
+      url: 'http://localhost:3000',
     }),
   ],
 });
