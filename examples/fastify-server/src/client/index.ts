@@ -1,5 +1,5 @@
 import {
-  createTRPCProxyClient,
+  createTRPCClient,
   createWSClient,
   httpBatchLink,
   splitLink,
@@ -14,15 +14,17 @@ async function start() {
   const { port, prefix } = serverConfig;
   const urlEnd = `localhost:${port}${prefix}`;
   const wsClient = createWSClient({ url: `ws://${urlEnd}` });
-  const trpc = createTRPCProxyClient<AppRouter>({
-    transformer: superjson,
+  const trpc = createTRPCClient<AppRouter>({
     links: [
       splitLink({
         condition(op) {
           return op.type === 'subscription';
         },
-        true: wsLink({ client: wsClient }),
-        false: httpBatchLink({ url: `http://${urlEnd}` }),
+        true: wsLink({ client: wsClient, transformer: superjson }),
+        false: httpBatchLink({
+          url: `http://${urlEnd}`,
+          transformer: superjson,
+        }),
       }),
     ],
   });
@@ -61,7 +63,7 @@ async function start() {
   });
 
   // we're done - make sure app closes with a clean exit
-  wsClient.close();
+  await wsClient.close();
 }
 
-start();
+void start();

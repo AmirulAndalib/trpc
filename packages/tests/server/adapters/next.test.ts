@@ -1,55 +1,42 @@
-import { initTRPC } from '@trpc/server';
-import * as trpcNext from '@trpc/server/src/adapters/next';
 import { EventEmitter } from 'events';
+import * as http from 'http';
+import type { AddressInfo } from 'net';
+import type { inferRouterOutputs } from '@trpc/server';
+import { initTRPC } from '@trpc/server';
+import * as trpcNext from '@trpc/server/adapters/next';
+import type { TRPCErrorResponse, TRPCSuccessResponse } from '@trpc/server/rpc';
+import type { DefaultErrorShape } from '@trpc/server/unstable-core-do-not-import';
+import { createDeferred } from '@trpc/server/unstable-core-do-not-import';
 
-function mockReq({
-  query,
-  method = 'GET',
-  body,
-}: {
-  query: Record<string, any>;
-  method?:
-    | 'CONNECT'
-    | 'DELETE'
-    | 'GET'
-    | 'HEAD'
-    | 'OPTIONS'
-    | 'POST'
-    | 'PUT'
-    | 'TRACE';
-  body?: unknown;
+function createHttpServer(opts: {
+  handler: trpcNext.NextApiHandler;
+  query: object;
 }) {
-  const req = new EventEmitter() as any;
+  const deferred = createDeferred();
+  const httpServer = http.createServer((req, res) => {
+    const _req = req as any;
+    const _res = res as any;
 
-  req.method = method;
-  req.query = query;
+    _req.query = opts.query;
 
-  const socket = {
-    destroy: jest.fn(),
-  };
-  req.socket = socket;
-
-  setTimeout(() => {
-    if (body) {
-      req.emit('data', JSON.stringify(body));
-    }
-    req.emit('end');
+    Promise.resolve(opts.handler(_req, _res)).then(() => {
+      deferred.resolve();
+    });
   });
 
-  return { req, socket };
-}
-function mockRes() {
-  const res = new EventEmitter() as any;
+  const server = httpServer.listen(0);
+  const httpPort = (server.address() as AddressInfo).port;
+  const httpUrl = `http://localhost:${httpPort}`;
 
-  const json = jest.fn(() => res);
-  const setHeader = jest.fn(() => res);
-  const end = jest.fn(() => res);
-  res.json = json;
-  res.setHeader = setHeader;
-  res.end = end;
-
-  return { res, json, setHeader, end };
+  return {
+    httpUrl,
+    close: async () => {
+      await deferred.promise;
+      server.close();
+    },
+  };
 }
+
 test('bad setup', async () => {
   const t = initTRPC.create();
 
@@ -57,75 +44,64 @@ test('bad setup', async () => {
     hello: t.procedure.query(() => 'world'),
   });
 
-  const handler = trpcNext.createNextApiHandler({
-    router,
+  const server = createHttpServer({
+    handler: trpcNext.createNextApiHandler({
+      router,
+    }),
+    query: {},
   });
 
-  const { req } = mockReq({ query: {} });
-  const { res, json } = mockRes();
+  const res = await fetch(server.httpUrl);
+  const json: TRPCErrorResponse<DefaultErrorShape> = await res.json();
 
-  await handler(req, res);
+  json.error.data.stack = '[redacted]';
 
-  const responseJson: any = (json.mock.calls[0] as any)[0];
-  expect(responseJson.ok).toMatchInlineSnapshot(`undefined`);
-  expect(responseJson.error.message).toMatchInlineSnapshot(
-    `"Query \\"trpc\\" not found - is the file named \`[trpc]\`.ts or \`[...trpc].ts\`?"`,
-  );
-  expect(responseJson.statusCode).toMatchInlineSnapshot(`undefined`);
+  expect(json).toMatchInlineSnapshot(`
+    Object {
+      "error": Object {
+        "code": -32603,
+        "data": Object {
+          "code": "INTERNAL_SERVER_ERROR",
+          "httpStatus": 500,
+          "stack": "[redacted]",
+        },
+        "message": "Query "trpc" not found - is the file named \`[trpc]\`.ts or \`[...trpc].ts\`?",
+      },
+    }
+  `);
+
+  await server.close();
 });
 
-describe('ok request', () => {
+test('ok request', async () => {
   const t = initTRPC.create();
 
   const router = t.router({
     hello: t.procedure.query(() => 'world'),
   });
 
-  const handler = trpcNext.createNextApiHandler({
-    router,
+  const server = createHttpServer({
+    handler: trpcNext.createNextApiHandler({
+      router,
+    }),
+    query: {
+      trpc: 'hello',
+    },
   });
 
-  test('[...trpc].ts', async () => {
-    const { req } = mockReq({
-      query: {
-        trpc: ['hello'],
+  const res = await fetch(server.httpUrl);
+  const json: TRPCSuccessResponse<inferRouterOutputs<typeof router>['hello']> =
+    await res.json();
+
+  expect(json).toMatchInlineSnapshot(`
+    Object {
+      "result": Object {
+        "data": "world",
       },
-    });
-    const { res, end } = mockRes();
+    }
+  `);
 
-    await handler(req, res);
-    expect(res.statusCode).toBe(200);
-
-    const json: any = JSON.parse((end.mock.calls[0] as any)[0]);
-    expect(json).toMatchInlineSnapshot(`
-      Object {
-        "result": Object {
-          "data": "world",
-        },
-      }
-    `);
-  });
-
-  test('[trpc].ts', async () => {
-    const { req } = mockReq({
-      query: {
-        trpc: 'hello',
-      },
-    });
-    const { res, end } = mockRes();
-
-    await handler(req, res);
-    expect(res.statusCode).toBe(200);
-
-    const json: any = JSON.parse((end.mock.calls[0] as any)[0]);
-    expect(json).toMatchInlineSnapshot(`
-      Object {
-        "result": Object {
-          "data": "world",
-        },
-      }
-    `);
-  });
+  await server.close();
 });
 
 test('404', async () => {
@@ -135,54 +111,37 @@ test('404', async () => {
     hello: t.procedure.query(() => 'world'),
   });
 
-  const handler = trpcNext.createNextApiHandler({
-    router,
-  });
-
-  const { req } = mockReq({
+  const server = createHttpServer({
+    handler: trpcNext.createNextApiHandler({
+      router,
+    }),
     query: {
-      trpc: ['not-found-path'],
+      trpc: 'not-found-path',
     },
   });
-  const { res, end } = mockRes();
 
-  await handler(req, res);
+  const res = await fetch(server.httpUrl);
+  const json: TRPCErrorResponse<DefaultErrorShape> = await res.json();
+  expect(res.status).toBe(404);
 
-  expect(res.statusCode).toBe(404);
-  const json: any = JSON.parse((end.mock.calls[0] as any)[0]);
+  json.error.data.stack = '[redacted]';
 
-  expect(json.error.message).toMatchInlineSnapshot(
-    `"No \\"query\\"-procedure on path \\"not-found-path\\""`,
-  );
-});
+  expect(json).toMatchInlineSnapshot(`
+    Object {
+      "error": Object {
+        "code": -32004,
+        "data": Object {
+          "code": "NOT_FOUND",
+          "httpStatus": 404,
+          "path": "not-found-path",
+          "stack": "[redacted]",
+        },
+        "message": "No procedure found on path "not-found-path"",
+      },
+    }
+  `);
 
-test('payload too large', async () => {
-  const t = initTRPC.create();
-
-  const router = t.router({
-    hello: t.procedure.query(() => 'world'),
-  });
-
-  const handler = trpcNext.createNextApiHandler({
-    router,
-    maxBodySize: 1,
-  });
-
-  const { req } = mockReq({
-    query: {
-      trpc: ['hello'],
-    },
-    method: 'POST',
-    body: '123456789',
-  });
-  const { res, end } = mockRes();
-
-  await handler(req, res);
-
-  expect(res.statusCode).toBe(413);
-  const json: any = JSON.parse((end.mock.calls[0] as any)[0]);
-
-  expect(json.error.message).toMatchInlineSnapshot(`"PAYLOAD_TOO_LARGE"`);
+  await server.close();
 });
 
 test('HEAD request', async () => {
@@ -192,21 +151,19 @@ test('HEAD request', async () => {
     hello: t.procedure.query(() => 'world'),
   });
 
-  const handler = trpcNext.createNextApiHandler({
-    router,
-  });
-
-  const { req } = mockReq({
+  const server = createHttpServer({
+    handler: trpcNext.createNextApiHandler({
+      router,
+    }),
     query: {
-      trpc: [],
+      trpc: 'hello',
     },
-    method: 'HEAD',
   });
-  const { res } = mockRes();
 
-  await handler(req, res);
+  const res = await fetch(server.httpUrl, { method: 'HEAD' });
+  expect(res.status).toBe(204);
 
-  expect(res.statusCode).toBe(204);
+  await server.close();
 });
 
 test('PUT request (fails)', async () => {
@@ -216,19 +173,100 @@ test('PUT request (fails)', async () => {
     hello: t.procedure.query(() => 'world'),
   });
 
-  const handler = trpcNext.createNextApiHandler({
-    router,
-  });
-
-  const { req } = mockReq({
+  const server = createHttpServer({
+    handler: trpcNext.createNextApiHandler({
+      router,
+    }),
     query: {
-      trpc: [],
+      trpc: 'hello',
     },
-    method: 'PUT',
   });
-  const { res } = mockRes();
 
-  await handler(req, res);
+  const res = await fetch(server.httpUrl, {
+    method: 'PUT',
+    headers: {
+      'content-type': 'application/json',
+    },
+  });
+  const json: TRPCErrorResponse<DefaultErrorShape> = await res.json();
 
-  expect(res.statusCode).toBe(405);
+  json.error.data.stack = '[redacted]';
+
+  expect(json).toMatchInlineSnapshot(`
+    Object {
+      "error": Object {
+        "code": -32005,
+        "data": Object {
+          "code": "METHOD_NOT_SUPPORTED",
+          "httpStatus": 405,
+          "path": "hello",
+          "stack": "[redacted]",
+        },
+        "message": "Unsupported PUT-request to query procedure at path "hello"",
+      },
+    }
+  `);
+
+  expect(res.status).toBe(405);
+
+  await server.close();
+});
+
+test('middleware intercepts request', async () => {
+  const t = initTRPC.create();
+
+  const router = t.router({
+    hello: t.procedure.query(() => 'world'),
+  });
+
+  const server = createHttpServer({
+    handler: trpcNext.createNextApiHandler({
+      middleware: (_req, res) => {
+        res.statusCode = 419;
+        res.end();
+        return;
+      },
+      router,
+    }),
+    query: {
+      trpc: 'hello',
+    },
+  });
+
+  const res = await fetch(server.httpUrl, { method: 'PUT' });
+
+  expect(res.status).toBe(419);
+
+  await server.close();
+});
+
+test('middleware passes the request', async () => {
+  const t = initTRPC.create();
+
+  const router = t.router({
+    hello: t.procedure.query(() => 'world'),
+  });
+
+  const server = createHttpServer({
+    handler: trpcNext.createNextApiHandler({
+      router,
+    }),
+    query: {
+      trpc: 'hello',
+    },
+  });
+
+  const res = await fetch(server.httpUrl);
+  const json: TRPCSuccessResponse<inferRouterOutputs<typeof router>['hello']> =
+    await res.json();
+
+  expect(json).toMatchInlineSnapshot(`
+    Object {
+      "result": Object {
+        "data": "world",
+      },
+    }
+  `);
+
+  await server.close();
 });

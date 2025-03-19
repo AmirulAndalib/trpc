@@ -1,6 +1,5 @@
 import { routerToServerAndClientNew } from './___testHelpers';
-import { initTRPC } from '@trpc/server/src';
-import { expectTypeOf } from 'expect-type';
+import { initTRPC } from '@trpc/server';
 
 test('children', async () => {
   const t = initTRPC.create();
@@ -26,14 +25,14 @@ test('children', async () => {
     }
   `);
 
-  const { close, proxy } = routerToServerAndClientNew(router);
+  const { close, client } = routerToServerAndClientNew(router);
 
-  expect(await proxy.foo.query()).toBe('bar');
+  expect(await client.foo.query()).toBe('bar');
 
-  expect(await proxy.child.grandchild.foo.query()).toBe('grandchild');
-  expect(await proxy.child.grandchild.mut.mutate()).toBe('mut');
+  expect(await client.child.grandchild.foo.query()).toBe('grandchild');
+  expect(await client.child.grandchild.mut.mutate()).toBe('mut');
 
-  return close();
+  await close();
 });
 
 test('w/o children', async () => {
@@ -44,5 +43,5 @@ test('w/o children', async () => {
     foo,
   });
 
-  expectTypeOf(router._def.procedures.foo).toEqualTypeOf(foo);
+  expect(router._def.procedures.foo).toBe(foo);
 });

@@ -1,40 +1,74 @@
-import {
-  AnyProcedure,
-  AnyRouter,
-  DefaultErrorShape,
+import type {
+  inferClientTypes,
+  InferrableClientTypes,
   Maybe,
-  inferRouterError,
-} from '@trpc/server';
-import { TRPCErrorResponse } from '@trpc/server/rpc';
+  TRPCErrorResponse,
+} from '@trpc/server/unstable-core-do-not-import';
+import {
+  isObject,
+  type DefaultErrorShape,
+} from '@trpc/server/unstable-core-do-not-import';
 
-type RouterOrProcedure = AnyRouter | AnyProcedure;
-
-type inferErrorShape<TRouterOrProcedure extends RouterOrProcedure> =
-  TRouterOrProcedure extends AnyRouter
-    ? inferRouterError<TRouterOrProcedure>
-    : TRouterOrProcedure['_def']['_config']['$types']['errorShape'];
-
+type inferErrorShape<TInferrable extends InferrableClientTypes> =
+  inferClientTypes<TInferrable>['errorShape'];
 export interface TRPCClientErrorBase<TShape extends DefaultErrorShape> {
   readonly message: string;
   readonly shape: Maybe<TShape>;
   readonly data: Maybe<TShape['data']>;
 }
-export type TRPCClientErrorLike<TRouterOrProcedure extends RouterOrProcedure> =
-  TRPCClientErrorBase<inferErrorShape<TRouterOrProcedure>>;
+export type TRPCClientErrorLike<TInferrable extends InferrableClientTypes> =
+  TRPCClientErrorBase<inferErrorShape<TInferrable>>;
 
-export class TRPCClientError<TRouterOrProcedure extends RouterOrProcedure>
+function isTRPCClientError(cause: unknown): cause is TRPCClientError<any> {
+  return (
+    cause instanceof TRPCClientError ||
+    /**
+     * @deprecated
+     * Delete in next major
+     */
+    (cause instanceof Error && cause.name === 'TRPCClientError')
+  );
+}
+
+function isTRPCErrorResponse(obj: unknown): obj is TRPCErrorResponse<any> {
+  return (
+    isObject(obj) &&
+    isObject(obj['error']) &&
+    typeof obj['error']['code'] === 'number' &&
+    typeof obj['error']['message'] === 'string'
+  );
+}
+
+function getMessageFromUnknownError(err: unknown, fallback: string): string {
+  if (typeof err === 'string') {
+    return err;
+  }
+  if (isObject(err) && typeof err['message'] === 'string') {
+    return err['message'];
+  }
+  return fallback;
+}
+
+export class TRPCClientError<TRouterOrProcedure extends InferrableClientTypes>
   extends Error
   implements TRPCClientErrorBase<inferErrorShape<TRouterOrProcedure>>
 {
-  public readonly cause;
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+  // @ts-ignore override doesn't work in all environments due to "This member cannot have an 'override' modifier because it is not declared in the base class 'Error'"
+  public override readonly cause;
   public readonly shape: Maybe<inferErrorShape<TRouterOrProcedure>>;
   public readonly data: Maybe<inferErrorShape<TRouterOrProcedure>['data']>;
-  public readonly meta;
+
+  /**
+   * Additional meta data about the error
+   * In the case of HTTP-errors, we'll have `response` and potentially `responseJSON` here
+   */
+  public meta;
 
   constructor(
     message: string,
     opts?: {
-      result?: Maybe<inferErrorShape<TRouterOrProcedure>>;
+      result?: Maybe<TRPCErrorResponse<inferErrorShape<TRouterOrProcedure>>>;
       cause?: Error;
       meta?: Record<string, unknown>;
     },
@@ -55,28 +89,34 @@ export class TRPCClientError<TRouterOrProcedure extends RouterOrProcedure>
     Object.setPrototypeOf(this, TRPCClientError.prototype);
   }
 
-  public static from<TRouterOrProcedure extends RouterOrProcedure>(
-    cause: Error | TRPCErrorResponse<any>,
+  public static from<TRouterOrProcedure extends InferrableClientTypes>(
+    _cause: Error | TRPCErrorResponse<any> | object,
     opts: { meta?: Record<string, unknown> } = {},
   ): TRPCClientError<TRouterOrProcedure> {
-    if (!(cause instanceof Error)) {
-      return new TRPCClientError<TRouterOrProcedure>(
-        cause.error.message ?? '',
-        {
-          ...opts,
-          cause: undefined,
-          result: cause as any,
-        },
-      );
-    }
-    if (cause.name === 'TRPCClientError') {
-      return cause as TRPCClientError<any>;
-    }
+    const cause = _cause as unknown;
 
-    return new TRPCClientError<TRouterOrProcedure>(cause.message, {
-      ...opts,
-      cause,
-      result: null,
-    });
+    if (isTRPCClientError(cause)) {
+      if (opts.meta) {
+        // Decorate with meta error data
+        cause.meta = {
+          ...cause.meta,
+          ...opts.meta,
+        };
+      }
+      return cause;
+    }
+    if (isTRPCErrorResponse(cause)) {
+      return new TRPCClientError(cause.error.message, {
+        ...opts,
+        result: cause,
+      });
+    }
+    return new TRPCClientError(
+      getMessageFromUnknownError(cause, 'Unknown error'),
+      {
+        ...opts,
+        cause: cause as any,
+      },
+    );
   }
 }

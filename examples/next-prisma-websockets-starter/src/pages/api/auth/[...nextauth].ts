@@ -1,9 +1,12 @@
 import NextAuth from 'next-auth';
-import { AppProviders } from 'next-auth/providers';
+import type { AppProviders } from 'next-auth/providers';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import GithubProvider from 'next-auth/providers/github';
 
-let useMockProvider = process.env.NODE_ENV === 'test';
+let useMockProvider =
+  process.env.NODE_ENV === 'test' ||
+  process.env.RAILWAY_ENVIRONMENT_NAME?.includes('-pr-'); // example: 'trpc-pr-5821'
+
 const { GITHUB_CLIENT_ID, GITHUB_SECRET, NODE_ENV, APP_ENV } = process.env;
 if (
   (NODE_ENV !== 'production' || APP_ENV === 'test') &&
@@ -20,12 +23,12 @@ if (useMockProvider) {
       name: 'Mocked GitHub',
       async authorize(credentials) {
         if (credentials) {
-          const user = {
-            id: credentials.name,
-            name: credentials.name,
-            email: credentials.name,
+          const name = credentials.name;
+          return {
+            id: name,
+            name: name,
+            email: name,
           };
-          return user;
         }
         return null;
       },

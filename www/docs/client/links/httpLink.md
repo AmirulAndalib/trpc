@@ -2,10 +2,10 @@
 id: httpLink
 title: HTTP Link
 sidebar_label: HTTP Link
-slug: /links/httpLink
+slug: /client/links/httpLink
 ---
 
-`httpLink` is a [**terminating link**](./index.md#the-terminating-link) that sends a tRPC operation to a tRPC procedure over HTTP.
+`httpLink` is a [**terminating link**](./overview.md#the-terminating-link) that sends a tRPC operation to a tRPC procedure over HTTP.
 
 `httpLink` supports both POST and GET requests.
 
@@ -14,13 +14,14 @@ slug: /links/httpLink
 You can import and add the `httpLink` to the `links` array as such:
 
 ```ts title="client/index.ts"
-import { createTRPCProxyClient, httpLink } from '@trpc/client';
+import { createTRPCClient, httpLink } from '@trpc/client';
 import type { AppRouter } from '../server';
 
-const client = createTRPCProxyClient<AppRouter>({
+const client = createTRPCClient<AppRouter>({
   links: [
     httpLink({
       url: 'http://localhost:3000',
+      // transformer,
     }),
   ],
 });
@@ -42,10 +43,23 @@ export interface HTTPLinkOptions {
    */
   AbortController?: typeof AbortController | null;
   /**
+   * Data transformer
+   * @see https://trpc.io/docs/v11/data-transformers
+   **/
+  transformer?: DataTransformerOptions;
+  /**
    * Headers to be set on outgoing requests or a callback that of said headers
-   * @link http://trpc.io/docs/v10/header
+   * @see http://trpc.io/docs/v10/header
    */
-  headers?: HTTPHeaders | (() => HTTPHeaders | Promise<HTTPHeaders>);
+  headers?:
+    | HTTPHeaders
+    | ((opts: { op: Operation }) => HTTPHeaders | Promise<HTTPHeaders>);
+  /**
+   * Send all requests as POSTS requests regardless of the procedure type
+   * The server must separately allow overriding the method. See:
+   * @see https://trpc.io/docs/rpc
+   */
+  methodOverride?: 'POST';
 }
 ```
 

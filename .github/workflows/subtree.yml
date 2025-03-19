@@ -1,11 +1,12 @@
 name: subtree-matrix
 on:
+  workflow_dispatch:
   push:
     branches:
-      - main
+      - next
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false # true causes the workflow to cancel and look failed on `main` (which is done after a release)
 jobs:
   sync-downstream:
     runs-on: ubuntu-latest
@@ -15,32 +16,47 @@ jobs:
       matrix:
         path: [
             #
-            next-prisma-starter,
-            next-prisma-websockets-starter,
-            next-prisma-todomvc,
-            next-minimal-starter,
+            .experimental/next-app-dir,
+            minimal-react,
+            minimal,
             next-big-router,
+            next-formdata,
+            next-minimal-starter,
+            next-prisma-starter,
+            next-prisma-todomvc,
+            next-prisma-websockets-starter,
+            next-sse-chat,
           ]
 
     name: Update downstream ${{ matrix.path }} package
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - uses: pnpm/action-setup@v2.2.4
-      - uses: actions/setup-node@v3
+      - name: Run find-and-replace to remove '.experimental/' from above paths
+        uses: mad9000/actions-find-and-replace-string@5
+        id: findandreplace
         with:
-          node-version: 18.x
+          source: ${{ matrix.path }}
+          find: '.experimental/'
+          replace: ''
+      - name: Get the above output
+        run: echo "The replaced value is ${{ steps.findandreplace.outputs.value }}"
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
           cache: 'pnpm'
 
       - name: Install dependencies and create separate lockfile
         run: |
-          echo "shared-workspace-lockfile=false" >> .npmrc
-          echo "link-workspace-packages=false" >> .npmrc
-          cp ./pnpm-lock.yaml ./examples/${{ matrix.path }}/pnpm-lock.yaml
-          pnpm install --no-frozen-lockfile
+          cd ./examples/${{ matrix.path }}
+          # replace all instances of "@trpc/<<anything but a quote>>": "<<anything but a quote>>" with "@trpc/*": "next" in the package.json
+          find . -name 'package.json' -print0 | xargs -0 sed -i 's/\("@trpc\/[^"]*"\): "[^"]*"/\1: "next"/g'
+          pnpm install --no-frozen-lockfile --ignore-scripts --ignore-workspace
 
       - name: Commit changes
         run: |
@@ -52,7 +68,8 @@ jobs:
       - name: Sync downstream
         uses: nxtlvlsoftware/git-subtree-action@1.1
         with:
-          repo: 'trpc/examples-${{ matrix.path }}'
+          repo: 'trpc/examples-${{ steps.findandreplace.outputs.value }}'
           path: 'examples/${{ matrix.path }}'
           deploy_key: ${{ secrets.TRPC_DEPLOY_TOKEN }}
           force: true # will force push to the downstream repository
+          branch: main # will push to the main branch of the downstream repository

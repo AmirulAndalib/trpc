@@ -1,42 +1,45 @@
+import { useBlogPost } from '@docusaurus/plugin-content-blog/client';
 import { PageMetadata } from '@docusaurus/theme-common';
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore
-import { useBlogPost as ubp } from '@docusaurus/theme-common/internal';
-import { useBlogPost as typedUbp } from '@docusaurus/theme-common/lib/internal';
 import React from 'react';
 import { blogParams } from '../../../../og-image/utils/zodParams';
 import { useEnv } from '../../../utils/useEnv';
 
-// /lib doesn't actually export but actual export has import error in vscode
-const useBlogPost = ubp as unknown as typeof typedUbp;
-
-export default function BlogPostPageMetadata(): JSX.Element {
-  const { metadata } = useBlogPost();
+export default function BlogPostPageMetadata(): React.JSX.Element {
+  const { assets, metadata } = useBlogPost();
   const { title, description, date, tags, authors, frontMatter } = metadata;
+
   const { keywords } = frontMatter;
-  const author = authors[0];
+
   const env = useEnv();
 
   const ogImg = `${env.OG_URL}/api/blog?${blogParams.toSearchString({
     title: metadata.title,
     description: metadata.description,
-    authorName: author.name as string,
-    authorTitle: author.title as string,
-    authorImg: author.imageURL as string,
+    authors: authors.map((author) => ({
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      name: author.name!,
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      title: author.title!,
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      img: author.imageURL!,
+    })),
     date,
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     readingTimeInMinutes: metadata.readingTime!,
   })}`;
+
+  const image = assets.image ?? frontMatter.image ?? ogImg;
 
   return (
     <PageMetadata
       title={title}
       description={description}
       keywords={keywords}
-      image={ogImg}
+      image={image}
     >
       <meta property="og:type" content="article" />
       <meta property="article:published_time" content={date} />
+      {/* TODO double check those article meta array syntaxes, see https://ogp.me/#array */}
       {authors.some((author) => author.url) && (
         <meta
           property="article:author"

@@ -2,14 +2,14 @@
 id: middlewares
 title: Middlewares
 sidebar_label: Middlewares
-slug: /middlewares
+slug: /server/middlewares
 ---
 
 You are able to add middleware(s) to a procedure with the `t.procedure.use()` method. The middleware(s) will wrap the invocation of the procedure and must pass through its return value.
 
 ## Authorization
 
-In the example below, any call to a `protectedProcedure` will ensure that the user is an "admin" before executing.
+In the example below, any call to a `adminProcedure` will ensure that the user is an "admin" before executing.
 
 ```twoslash include admin
 import { TRPCError, initTRPC } from '@trpc/server';
@@ -23,22 +23,20 @@ interface Context {
 }
 
 const t = initTRPC.context<Context>().create();
-export const middleware = t.middleware;
 export const publicProcedure = t.procedure;
 export const router = t.router;
 
-const isAdmin = middleware(async ({ ctx, next }) => {
+export const adminProcedure = publicProcedure.use(async (opts) => {
+  const { ctx } = opts;
   if (!ctx.user?.isAdmin) {
     throw new TRPCError({ code: 'UNAUTHORIZED' });
   }
-  return next({
+  return opts.next({
     ctx: {
       user: ctx.user,
     },
   });
 });
-
-export const adminProcedure = publicProcedure.use(isAdmin);
 ```
 
 ```ts twoslash
@@ -74,24 +72,27 @@ In the example below timings for queries are logged automatically.
 import { initTRPC } from '@trpc/server';
 const t = initTRPC.create();
 
-export const middleware = t.middleware;
+
 export const publicProcedure = t.procedure;
 export const router = t.router;
 
 declare function logMock(...args: any[]): void;
 // ---cut---
-const loggerMiddleware = middleware(async ({ path, type, next }) => {
+
+export const loggedProcedure = publicProcedure.use(async (opts) => {
   const start = Date.now();
-  const result = await next();
+
+  const result = await opts.next();
+
   const durationMs = Date.now() - start;
+  const meta = { path: opts.path, type: opts.type, durationMs };
+
   result.ok
-    ? logMock('OK request timing:', { path, type, durationMs })
-    : logMock('Non-OK request timing', { path, type, durationMs });
+    ? console.log('OK request timing:', meta)
+    : console.error('Non-OK request timing', meta);
 
   return result;
 });
-
-export const loggedProcedure = publicProcedure.use(loggerMiddleware);
 ```
 
 ```ts twoslash
@@ -111,20 +112,19 @@ export const appRouter = router({
 });
 ```
 
-## Context Swapping
+## Context Extension
 
-Context swapping in tRPC is a very powerful feature that allows you to create base procedures that dynamically infers new context in a flexible and typesafe manner.
+"Context Extension" enables middlewares to dynamically add and override keys on a base procedure's context in a typesafe manner.
 
-Below we have an example of a middleware that changes properties of the context, and procedures will receive the new context value:
+Below we have an example of a middleware that changes properties of a context, the changes are then available to all chained consumers, such as other middlewares and procedures:
 
 ```ts twoslash
 // @target: esnext
-import { TRPCError, initTRPC } from '@trpc/server';
+import { initTRPC, TRPCError } from '@trpc/server';
 
 const t = initTRPC.context<Context>().create();
 const publicProcedure = t.procedure;
 const router = t.router;
-const middleware = t.middleware;
 
 // ---cut---
 
@@ -135,14 +135,15 @@ type Context = {
   };
 };
 
-const isAuthed = middleware(({ ctx, next }) => {
+const protectedProcedure = publicProcedure.use(async function isAuthed(opts) {
+  const { ctx } = opts;
   // `ctx.user` is nullable
   if (!ctx.user) {
     //     ^?
     throw new TRPCError({ code: 'UNAUTHORIZED' });
   }
 
-  return next({
+  return opts.next({
     ctx: {
       // ✅ user value is known to be non-null now
       user: ctx.user,
@@ -151,24 +152,109 @@ const isAuthed = middleware(({ ctx, next }) => {
   });
 });
 
-const protectedProcedure = publicProcedure.use(isAuthed);
 protectedProcedure.query(({ ctx }) => ctx.user);
 //                                        ^?
+```
+
+## Using `.concat()` to create reusable middlewares and plugins {#concat}
+
+:::tip
+
+- Creating middlewares using `t.middleware` has the limitation that the `Context` type is tied to the `Context` type of the tRPC instance.
+- Creating middlewares with `experimental_standaloneMiddleware()` has the limitation that you cannot define input parsers and similar tied to your module.
+
+:::
+
+tRPC has an API called `.concat()` which allows you to independently define a partial procedure that can be used with any tRPC instance that matches the context and metadata of the plugin.
+
+This helper primarily targets creating plugins and libraries with tRPC.
+
+<!-- TODO: add docs with a real-world example of a plugin or something -->
+
+```ts twoslash
+// @target: esnext
+// ------------------------------------------------
+// 🧩🧩🧩 a library creating a reusable plugin 🧩🧩🧩
+// @filename: myPlugin.ts
+
+import { initTRPC, TRPCError } from '@trpc/server';
+
+export function createMyPlugin() {
+  // When creating a plugin for tRPC, you use the same API as creating any other tRPC-app
+  // this is the plugin's root `t`-object
+  const t = initTRPC
+    .context<{
+      // the procedure using the plugin will need to extend this context
+    }>()
+    .meta<{
+      // the base `initTRPC`-object of the application using this needs to extend this meta
+    }>()
+    .create();
+
+  return {
+    // you can also add `.input()` if you want your plugin to do input validation
+    pluginProc: t.procedure.use((opts) => {
+      return opts.next({
+        ctx: {
+          fromPlugin: 'hello from myPlugin' as const,
+        },
+      });
+    }),
+  };
+}
+// ------------------------------------
+// 🚀🚀🚀 the app using the plugin 🚀🚀🚀
+// @filename: app.ts
+import { createMyPlugin } from './myPlugin';
+import { initTRPC, TRPCError } from '@trpc/server';
+
+
+// the app's root `t`-object
+const t = initTRPC
+  .context<{
+    // ...
+  }>()
+  .create();
+
+
+export const publicProcedure = t.procedure;
+export const router = t.router;
+
+// initialize the plugin (a real-world example would likely take options here)
+const plugin = createMyPlugin();
+
+// create a base procedure using the plugin
+const procedureWithPlugin = publicProcedure
+  .concat(
+    plugin.pluginProc,
+  )
+  .use(opts => {
+    const { ctx } = opts;
+    //      ^?
+    return opts.next()
+  })
+
+
+export const appRouter = router({
+  hello: procedureWithPlugin.query(opts => {
+    return opts.ctx.fromPlugin;
+  })
+})
 ```
 
 ## Extending middlewares
 
 :::info
-We have prefixed this as `unstable_` as it's a new API, but you're safe to use it! [Read more](faq#unstable).
+We have prefixed this as `unstable_` as it's a new API, but you're safe to use it! [Read more](/docs/faq#unstable).
 :::
 
 We have a powerful feature called `.pipe()` which allows you to extend middlewares in a typesafe manner.
 
-Below we have an example of a middleware that extends a base middleware(foo). Like the context swapping example above, piping middlewares will change properties of the context, and procedures will receive the new context value.
+Below we have an example of a middleware that extends a base middleware(foo). Like the context extension example above, piping middlewares will change properties of the context, and procedures will receive the new context value.
 
 ```ts twoslash
 // @target: esnext
-import { TRPCError, initTRPC } from '@trpc/server';
+import { initTRPC, TRPCError } from '@trpc/server';
 
 const t = initTRPC.create();
 const publicProcedure = t.procedure;
@@ -177,18 +263,19 @@ const middleware = t.middleware;
 
 // ---cut---
 
-const fooMiddleware = middleware(({ next }) => {
-  return next({
+const fooMiddleware = t.middleware((opts) => {
+  return opts.next({
     ctx: {
       foo: 'foo' as const,
     },
   });
 });
 
-const barMiddleware = fooMiddleware.unstable_pipe(({ ctx, next }) => {
+const barMiddleware = fooMiddleware.unstable_pipe((opts) => {
+  const { ctx } = opts;
   ctx.foo;
   //   ^?
-  return next({
+  return opts.next({
     ctx: {
       bar: 'bar' as const,
     },
@@ -213,20 +300,22 @@ const t = initTRPC
   }>()
   .create();
 
-const fooMiddleware = t.middleware(({ ctx, next }) => {
+const fooMiddleware = t.middleware((opts) => {
+  const { ctx } = opts;
   ctx.a; // 👈 fooMiddleware expects `ctx.a` to be an object
   //  ^?
-  return next({
+  return opts.next({
     ctx: {
       a: 'a' as const, // 👈 `ctx.a` is no longer an object
     },
   });
 });
 
-const barMiddleware = t.middleware(({ ctx, next }) => {
+const barMiddleware = t.middleware((opts) => {
+  const { ctx } = opts;
   ctx.a; // 👈 barMiddleware expects `ctx.a` to be an object
   //  ^?
-  return next({
+  return opts.next({
     ctx: {
       foo: 'foo' as const,
     },
@@ -239,4 +328,115 @@ fooMiddleware.unstable_pipe(barMiddleware);
 
 // ✅ `ctx.a` overlaps from `barMiddleware` and `fooMiddleware`
 barMiddleware.unstable_pipe(fooMiddleware);
+```
+
+## Experimental: standalone middlewares
+
+:::info
+This has been deprecated in favor of `.concat()`
+:::
+
+tRPC has an experimental API called `experimental_standaloneMiddleware` which allows you to independently define a middleware that can be used with any tRPC instance. Creating middlewares using `t.middleware` has the limitation that
+the `Context` type is tied to the `Context` type of the tRPC instance. This means that you cannot use the same middleware with multiple tRPC instances that have different `Context` types.
+
+Using `experimental_standaloneMiddleware` you can create a middleware that explicitly defines its requirements, i.e. the Context, Input and Meta types:
+
+```ts twoslash
+// @target: esnext
+import {
+  experimental_standaloneMiddleware,
+  initTRPC,
+  TRPCError,
+} from '@trpc/server';
+import * as z from 'zod';
+
+const projectAccessMiddleware = experimental_standaloneMiddleware<{
+  ctx: { allowedProjects: string[] }; // defaults to 'object' if not defined
+  input: { projectId: string }; // defaults to 'unknown' if not defined
+  // 'meta', not defined here, defaults to 'object | undefined'
+}>().create((opts) => {
+  if (!opts.ctx.allowedProjects.includes(opts.input.projectId)) {
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: 'Not allowed',
+    });
+  }
+
+  return opts.next();
+});
+
+const t1 = initTRPC
+  .context<{
+    allowedProjects: string[];
+  }>()
+  .create();
+
+// ✅ `ctx.allowedProjects` satisfies "string[]" and `input.projectId` satisfies "string"
+const accessControlledProcedure = t1.procedure
+  .input(z.object({ projectId: z.string() }))
+  .use(projectAccessMiddleware);
+
+// @errors: 2345
+// ❌ `ctx.allowedProjects` satisfies "string[]" but `input.projectId` does not satisfy "string"
+const accessControlledProcedure2 = t1.procedure
+  .input(z.object({ projectId: z.number() }))
+  .use(projectAccessMiddleware);
+
+// @errors: 2345
+// ❌ `ctx.allowedProjects` does not satisfy "string[]" even though `input.projectId` satisfies "string"
+const t2 = initTRPC
+  .context<{
+    allowedProjects: number[];
+  }>()
+  .create();
+
+const accessControlledProcedure3 = t2.procedure
+  .input(z.object({ projectId: z.string() }))
+  .use(projectAccessMiddleware);
+```
+
+Here is an example with multiple standalone middlewares:
+
+```ts twoslash
+// @target: esnext
+import { experimental_standaloneMiddleware, initTRPC } from '@trpc/server';
+import * as z from 'zod';
+
+const t = initTRPC.create();
+const schemaA = z.object({ valueA: z.string() });
+const schemaB = z.object({ valueB: z.string() });
+
+const valueAUppercaserMiddleware = experimental_standaloneMiddleware<{
+  input: z.infer<typeof schemaA>;
+}>().create((opts) => {
+  return opts.next({
+    ctx: { valueAUppercase: opts.input.valueA.toUpperCase() },
+  });
+});
+
+const valueBUppercaserMiddleware = experimental_standaloneMiddleware<{
+  input: z.infer<typeof schemaB>;
+}>().create((opts) => {
+  return opts.next({
+    ctx: { valueBUppercase: opts.input.valueB.toUpperCase() },
+  });
+});
+
+const combinedInputThatSatisfiesBothMiddlewares = z.object({
+  valueA: z.string(),
+  valueB: z.string(),
+  extraProp: z.string(),
+});
+
+t.procedure
+  .input(combinedInputThatSatisfiesBothMiddlewares)
+  .use(valueAUppercaserMiddleware)
+  .use(valueBUppercaserMiddleware)
+  .query(
+    ({
+      input: { valueA, valueB, extraProp },
+      ctx: { valueAUppercase, valueBUppercase },
+    }) =>
+      `valueA: ${valueA}, valueB: ${valueB}, extraProp: ${extraProp}, valueAUppercase: ${valueAUppercase}, valueBUppercase: ${valueBUppercase}`,
+  );
 ```

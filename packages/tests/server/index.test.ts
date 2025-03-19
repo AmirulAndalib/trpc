@@ -1,18 +1,19 @@
 /* eslint-disable @typescript-eslint/no-empty-function */
-import { routerToServerAndClientNew, waitError } from './___testHelpers';
-import { waitFor } from '@testing-library/react';
+import { routerToServerAndClientNew } from './___testHelpers';
+import { waitError } from '@trpc/server/__tests__/waitError';
+import '@testing-library/react';
+import type { HTTPHeaders } from '@trpc/client';
 import {
-  HTTPHeaders,
-  TRPCClientError,
-  createTRPCProxyClient,
+  createTRPCClient,
   createWSClient,
+  httpBatchLink,
+  TRPCClientError,
   wsLink,
-} from '@trpc/client/src';
-import { httpBatchLink } from '@trpc/client/src';
-import { Maybe, TRPCError, initTRPC } from '@trpc/server/src';
-import { CreateHTTPContextOptions } from '@trpc/server/src/adapters/standalone';
-import { observable } from '@trpc/server/src/observable';
-import { expectTypeOf } from 'expect-type';
+} from '@trpc/client';
+import { initTRPC, TRPCError } from '@trpc/server';
+import type { CreateHTTPContextOptions } from '@trpc/server/adapters/standalone';
+import { observable } from '@trpc/server/observable';
+import type { Maybe } from '@trpc/server/unstable-core-do-not-import';
 import { z } from 'zod';
 
 test('smoke test', async () => {
@@ -20,10 +21,10 @@ test('smoke test', async () => {
   const router = t.router({
     hello: t.procedure.query(() => 'world'),
   });
-  const { close, proxy } = routerToServerAndClientNew(router);
+  const { close, client } = routerToServerAndClientNew(router);
 
-  expect(await proxy.hello.query()).toBe('world');
-  close();
+  expect(await client.hello.query()).toBe('world');
+  await close();
 });
 
 test('mix query and mutation', async () => {
@@ -85,19 +86,19 @@ describe('integration tests', () => {
         }),
     });
 
-    const { close, proxy } = routerToServerAndClientNew(router);
+    const { close, client } = routerToServerAndClientNew(router);
     const err = await waitError(
       // @ts-expect-error - expected missing query
-      proxy.notfound.query('notFound' as any),
+      client.notfound.query('notFound' as any),
       TRPCClientError,
     );
     expect(err.message).toMatchInlineSnapshot(
-      `"No \\"query\\"-procedure on path \\"notfound\\""`,
+      `"No procedure found on path "notfound""`,
     );
     expect(err.shape?.message).toMatchInlineSnapshot(
-      `"No \\"query\\"-procedure on path \\"notfound\\""`,
+      `"No procedure found on path "notfound""`,
     );
-    close();
+    await close();
   });
 
   test('invalid input', async () => {
@@ -114,32 +115,32 @@ describe('integration tests', () => {
         }),
     });
 
-    const { close, proxy } = routerToServerAndClientNew(router);
+    const { close, client } = routerToServerAndClientNew(router);
     const err = await waitError(
-      proxy.hello.query({ who: 123 as any }),
+      client.hello.query({ who: 123 as any }),
       TRPCClientError,
     );
     expect(err.shape?.code).toMatchInlineSnapshot(`-32600`);
     expect(err.shape?.message).toMatchInlineSnapshot(`
-        "[
-          {
-            \\"code\\": \\"invalid_type\\",
-            \\"expected\\": \\"string\\",
-            \\"received\\": \\"number\\",
-            \\"path\\": [
-              \\"who\\"
-            ],
-            \\"message\\": \\"Expected string, received number\\"
-          }
-        ]"
-      `);
-    close();
+      "[
+        {
+          "code": "invalid_type",
+          "expected": "string",
+          "received": "number",
+          "path": [
+            "who"
+          ],
+          "message": "Expected string, received number"
+        }
+      ]"
+    `);
+    await close();
   });
 
   test('passing input to input w/o input', async () => {
     const t = initTRPC.create();
 
-    const snap = jest.fn();
+    const snap = vi.fn();
     const router = t.router({
       q: t.procedure.query(({ input }) => {
         snap(input);
@@ -151,22 +152,22 @@ describe('integration tests', () => {
       }),
     });
 
-    const { close, proxy } = routerToServerAndClientNew(router);
+    const { close, client } = routerToServerAndClientNew(router);
 
-    await proxy.q.query();
-    await proxy.q.query(undefined);
-    await proxy.q.query(null as any); // treat null as undefined
+    await client.q.query();
+    await client.q.query(undefined);
+    await client.q.query(null as any); // treat null as undefined
 
-    await proxy.q.query('not-nullish' as any);
+    await client.q.query('not-nullish' as any);
 
-    await proxy.m.mutate();
-    await proxy.m.mutate(undefined);
-    await proxy.m.mutate(null as any); // treat null as undefined
+    await client.m.mutate();
+    await client.m.mutate(undefined);
+    await client.m.mutate(null as any); // treat null as undefined
 
-    await proxy.m.mutate('not-nullish' as any);
+    await client.m.mutate('not-nullish' as any);
 
     expect(snap.mock.calls.every((call) => call[0] === undefined)).toBe(true);
-    close();
+    await close();
   });
 
   describe('type testing', () => {
@@ -188,15 +189,15 @@ describe('integration tests', () => {
           }),
       });
 
-      const { close, proxy } = routerToServerAndClientNew(router);
-      const res = await proxy.hello.query({ who: 'katt' });
+      const { close, client } = routerToServerAndClientNew(router);
+      const res = await client.hello.query({ who: 'katt' });
       expectTypeOf(res.input).toMatchTypeOf<Input>();
       expectTypeOf(res.input).not.toBeAny();
       expectTypeOf(res).toMatchTypeOf<{ input: Input; text: string }>();
 
       expect(res.text).toEqual('hello katt');
 
-      close();
+      await close();
     });
 
     test('mixed response', async () => {
@@ -217,15 +218,15 @@ describe('integration tests', () => {
         }),
       });
 
-      const { close, proxy } = routerToServerAndClientNew(router);
-      const res = await proxy.postById.query(1);
-      expectTypeOf(res).toMatchTypeOf<null | { id: number; title: string }>();
+      const { close, client } = routerToServerAndClientNew(router);
+      const res = await client.postById.query(1);
+      expectTypeOf(res).toMatchTypeOf<{ id: number; title: string } | null>();
       expect(res).toEqual({
         id: 1,
         title: 'helloo',
       });
 
-      close();
+      await close();
     });
 
     test('propagate ctx', async () => {
@@ -260,7 +261,7 @@ describe('integration tests', () => {
         }),
       });
 
-      const { close, proxy } = routerToServerAndClientNew(router, {
+      const { close, client } = routerToServerAndClientNew(router, {
         server: {
           createContext,
         },
@@ -278,13 +279,13 @@ describe('integration tests', () => {
 
       // no auth, should fail
       {
-        const err = await waitError(proxy.whoami.query(), TRPCClientError);
+        const err = await waitError(client.whoami.query(), TRPCClientError);
         expect(err.shape.message).toMatchInlineSnapshot(`"UNAUTHORIZED"`);
       }
       // auth, should work
       {
-        headers.authorization = 'kattsecret';
-        const res = await proxy.whoami.query();
+        headers['authorization'] = 'kattsecret';
+        const res = await client.whoami.query();
         expectTypeOf(res).toMatchTypeOf<{ id: number; name: string }>();
         expect(res).toEqual({
           id: 1,
@@ -292,7 +293,7 @@ describe('integration tests', () => {
         });
       }
 
-      close();
+      await close();
     });
 
     test('optional input', async () => {
@@ -313,19 +314,19 @@ describe('integration tests', () => {
           }),
       });
 
-      const { close, proxy } = routerToServerAndClientNew(router);
+      const { close, client } = routerToServerAndClientNew(router);
       {
-        const res = await proxy.hello.query({ who: 'katt' });
+        const res = await client.hello.query({ who: 'katt' });
         expectTypeOf(res.input).toMatchTypeOf<Input>();
         expectTypeOf(res.input).not.toBeAny();
       }
       {
-        const res = await proxy.hello.query();
+        const res = await client.hello.query();
         expectTypeOf(res.input).toMatchTypeOf<Input>();
         expectTypeOf(res.input).not.toBeAny();
       }
 
-      close();
+      await close();
     });
 
     test('mutation', async () => {
@@ -352,12 +353,12 @@ describe('integration tests', () => {
           }),
       });
 
-      const { close, proxy } = routerToServerAndClientNew(router);
-      const res = await proxy.hello.mutate({ who: 'katt' });
+      const { close, client } = routerToServerAndClientNew(router);
+      const res = await client.hello.mutate({ who: 'katt' });
       expectTypeOf(res.input).toMatchTypeOf<Input>();
       expectTypeOf(res.input).not.toBeAny();
       expect(res.text).toBe('hello katt');
-      close();
+      await close();
     });
   });
 });
@@ -461,28 +462,28 @@ test('void mutation response', async () => {
     null: t.procedure.mutation(() => null),
   });
 
-  const { close, proxy, wssPort, router } =
+  const { close, client, wssPort, router } =
     routerToServerAndClientNew(newRouter);
-  expect(await proxy.undefined.mutate()).toMatchInlineSnapshot(`undefined`);
-  expect(await proxy.null.mutate()).toMatchInlineSnapshot(`null`);
+  expect(await client.undefined.mutate()).toMatchInlineSnapshot(`undefined`);
+  expect(await client.null.mutate()).toMatchInlineSnapshot(`null`);
 
   const ws = createWSClient({
     url: `ws://localhost:${wssPort}`,
     WebSocket: WebSocket as any,
   });
-  const wsClient = createTRPCProxyClient<typeof router>({
+  const wsClient = createTRPCClient<typeof router>({
     links: [wsLink({ client: ws })],
   });
 
   expect(await wsClient.undefined.mutate()).toMatchInlineSnapshot(`undefined`);
   expect(await wsClient.null.mutate()).toMatchInlineSnapshot(`null`);
   ws.close();
-  close();
+  await close();
 });
 
 // https://github.com/trpc/trpc/issues/559
-describe('ObservableAbortError', () => {
-  test('cancelling request should throw ObservableAbortError', async () => {
+describe('AbortError', () => {
+  test('cancelling request should throw AbortError', async () => {
     const t = initTRPC.create();
 
     const router = t.router({
@@ -492,10 +493,10 @@ describe('ObservableAbortError', () => {
       }),
     });
 
-    const { close, proxy } = routerToServerAndClientNew(router);
-    const onReject = jest.fn();
+    const { close, client } = routerToServerAndClientNew(router);
+    const onReject = vi.fn();
     const ac = new AbortController();
-    const req = proxy.slow.query(undefined, {
+    const req = client.slow.query(undefined, {
       signal: ac.signal,
     });
     req.catch(onReject);
@@ -503,15 +504,15 @@ describe('ObservableAbortError', () => {
     await new Promise((resolve) => setTimeout(resolve, 5));
     ac.abort();
 
-    await waitFor(() => {
+    await vi.waitFor(() => {
       expect(onReject).toHaveBeenCalledTimes(1);
     });
 
     const err = onReject.mock.calls[0]![0]! as TRPCClientError<any>;
     expect(err.name).toBe('TRPCClientError');
-    expect(err.cause?.name).toBe('ObservableAbortError');
+    expect(err.cause?.name).toBe('AbortError');
 
-    close();
+    await close();
   });
 
   test('cancelling batch request should throw AbortError', async () => {
@@ -529,12 +530,8 @@ describe('ObservableAbortError', () => {
       }),
     });
 
-    const { close, proxy } = routerToServerAndClientNew(router, {
-      server: {
-        batching: {
-          enabled: true,
-        },
-      },
+    const { close, client } = routerToServerAndClientNew(router, {
+      server: {},
       client({ httpUrl }) {
         return {
           links: [httpBatchLink({ url: httpUrl })],
@@ -542,24 +539,16 @@ describe('ObservableAbortError', () => {
       },
     });
     const ac = new AbortController();
-    const req1 = proxy.slow1.query(undefined, { signal: ac.signal });
-    const req2 = proxy.slow2.query();
-    const onReject1 = jest.fn();
-    req1.catch(onReject1);
+    const req1 = client.slow1.query(undefined, { signal: ac.signal });
+    const req2 = client.slow2.query(undefined, { signal: ac.signal });
 
-    await new Promise((resolve) => setTimeout(resolve, 5));
     ac.abort();
-    await waitFor(() => {
-      expect(onReject1).toHaveBeenCalledTimes(1);
-    });
+    const err = await waitError(Promise.all([req1, req2]), TRPCClientError);
 
-    const err = onReject1.mock.calls[0]![0]! as TRPCClientError<any>;
     expect(err).toBeInstanceOf(TRPCClientError);
-    expect(err.cause?.name).toBe('ObservableAbortError');
+    expect(err.cause?.name).toBe('AbortError');
 
-    expect(await req2).toBe('slow2');
-
-    close();
+    await close();
   });
 });
 
@@ -572,24 +561,100 @@ test('regression: JSON.stringify([undefined]) gives [null] causes wrong type to 
     }),
   });
 
-  const { close, proxy } = routerToServerAndClientNew(router, {
+  const { close, client } = routerToServerAndClientNew(router, {
     client({ httpUrl }) {
       return {
         links: [httpBatchLink({ url: httpUrl })],
       };
     },
-    server: {
-      batching: {
-        enabled: true,
-      },
-    },
+    server: {},
   });
 
-  expect(await proxy.q.query('foo')).toMatchInlineSnapshot(`
+  expect(await client.q.query('foo')).toMatchInlineSnapshot(`
     Object {
       "input": "foo",
     }
   `);
-  expect(await proxy.q.query()).toMatchInlineSnapshot(`Object {}`);
-  close();
+  expect(await client.q.query()).toMatchInlineSnapshot(`Object {}`);
+  await close();
+});
+
+describe('apply()', () => {
+  test('query without input', async () => {
+    const t = initTRPC.create();
+    const router = t.router({
+      hello: t.procedure.query(() => 'world'),
+    });
+    const { close, client } = routerToServerAndClientNew(router);
+    expect(await client.hello.query.apply(undefined)).toBe('world');
+    await close();
+  });
+
+  test('query with input', async () => {
+    const t = initTRPC.create();
+    const router = t.router({
+      helloinput: t.procedure
+        .input(z.string())
+        .query(({ input }) => `hello ${input}`),
+    });
+    const { close, client } = routerToServerAndClientNew(router);
+    expect(await client.helloinput.query.apply(undefined, ['world'])).toBe(
+      'hello world',
+    );
+    await close();
+  });
+});
+
+describe('call()', () => {
+  test('query without input', async () => {
+    const t = initTRPC.create();
+    const router = t.router({
+      hello: t.procedure.query(() => 'world'),
+    });
+    const { close, client } = routerToServerAndClientNew(router);
+    expect(await client.hello.query.call(this)).toBe('world');
+    await close();
+  });
+
+  test('query with input', async () => {
+    const t = initTRPC.create();
+    const router = t.router({
+      helloinput: t.procedure
+        .input(z.string())
+        .query(({ input }) => `hello ${input}`),
+    });
+    const { close, client } = routerToServerAndClientNew(router);
+    expect(await client.helloinput.query.call(this, 'world')).toBe(
+      'hello world',
+    );
+    await close();
+  });
+
+  test('query with object input', async () => {
+    const t = initTRPC.create();
+    const router = t.router({
+      helloinput: t.procedure
+        .input(z.object({ text: z.string() }))
+        .query(({ input }) => `hello ${input.text}`),
+    });
+    const { close, client } = routerToServerAndClientNew(router);
+    expect(await client.helloinput.query.call(this, { text: 'world' })).toBe(
+      'hello world',
+    );
+    await close();
+  });
+
+  test('query with array input', async () => {
+    const t = initTRPC.create();
+    const router = t.router({
+      helloinput: t.procedure
+        .input(z.string().array())
+        .query(({ input }) => `hello ${input.join(' ')}`),
+    });
+    const { close, client } = routerToServerAndClientNew(router);
+    expect(await client.helloinput.query.call(this, ['world'])).toBe(
+      'hello world',
+    );
+    await close();
+  });
 });

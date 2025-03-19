@@ -3,9 +3,9 @@
  * On a bigger app, you will probably want to split this file up into multiple files.
  */
 import { fetchRequestHandler } from '@trpc/server/adapters/fetch';
-import { NextRequest } from 'next/server';
-import { z } from 'zod';
 import { publicProcedure, router } from '~/server/trpc';
+import type { NextRequest } from 'next/server';
+import { z } from 'zod';
 
 const appRouter = router({
   greeting: publicProcedure
@@ -35,7 +35,7 @@ export type AppRouter = typeof appRouter;
 
 // We're using the edge-runtime
 export const config = {
-  runtime: 'experimental-edge',
+  runtime: 'edge',
 };
 
 // export API handler

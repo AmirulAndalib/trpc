@@ -1,14 +1,14 @@
-import { createProxySSGHelpers } from '@trpc/react-query/ssg';
-import superjson from 'superjson';
+import { createServerSideHelpers } from '@trpc/react-query/server';
 import { appRouter } from '~/server/routers/_app';
 import { trpc } from '~/utils/trpc';
+import superjson from 'superjson';
 
 /**
  * This page will be served statically
- * @link https://trpc.io/docs/ssg
+ * @see https://trpc.io/docs/v11/ssg
  */
 export const getStaticProps = async () => {
-  const ssg = createProxySSGHelpers({
+  const ssg = createServerSideHelpers({
     router: appRouter,
     ctx: {},
     transformer: superjson,

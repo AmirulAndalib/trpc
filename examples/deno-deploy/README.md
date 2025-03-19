@@ -1,16 +1,16 @@
 - [Deno Deploy](https://deno.com/deploy)
 - Vanilla TRPCClient in Deno
 
-Install Deno then run:
+[Install Deno](https://deno.com/manual/getting_started/installation) then run:
 
 ```sh
-deno run --allow-net=:8000 --allow-env ./src/index.ts
+deno task server
 ```
 
 Run the client in another terminal:
 
 ```sh
-deno run --allow-net ./src/client.ts
+deno task client
 ```
 
 ---

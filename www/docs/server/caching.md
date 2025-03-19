@@ -2,10 +2,10 @@
 id: caching
 title: Response Caching
 sidebar_label: Response Caching
-slug: /caching
+slug: /server/caching
 ---
 
-The below examples uses [Vercel's edge caching](https://vercel.com/docs/serverless-functions/edge-caching) to serve data to your users as fast as possible.
+The below examples uses [Vercel's edge caching](https://vercel.com/docs/edge-network/caching) to serve data to your users as fast as possible.
 
 :::info
 Always be careful with caching - especially if you handle personal information.
@@ -29,7 +29,7 @@ import { createTRPCNext } from '@trpc/next';
 import type { AppRouter } from '../server/routers/_app';
 
 export const trpc = createTRPCNext<AppRouter>({
-  config({ ctx }) {
+  config(opts) {
     if (typeof window !== 'undefined') {
       return {
         links: [
@@ -53,7 +53,9 @@ export const trpc = createTRPCNext<AppRouter>({
     };
   },
   ssr: true,
-  responseMeta({ ctx, clientErrors }) {
+  responseMeta(opts) {
+    const { clientErrors } = opts;
+
     if (clientErrors.length) {
       // propagate http first error from API calls
       return {
@@ -64,9 +66,12 @@ export const trpc = createTRPCNext<AppRouter>({
     // cache request for 1 day + revalidate once every second
     const ONE_DAY_IN_SECONDS = 60 * 60 * 24;
     return {
-      headers: {
-        'cache-control': `s-maxage=1, stale-while-revalidate=${ONE_DAY_IN_SECONDS}`,
-      },
+      headers: new Headers([
+        [
+          'cache-control',
+          `s-maxage=1, stale-while-revalidate=${ONE_DAY_IN_SECONDS}`,
+        ],
+      ]),
     };
   },
 });
@@ -81,7 +86,7 @@ Since all queries are normal HTTP `GET`s, we can use normal HTTP headers to cach
 > Assuming you're deploying your API somewhere that can handle stale-while-revalidate cache headers like Vercel.
 
 ```tsx title='server.ts'
-import { inferAsyncReturnType, initTRPC } from '@trpc/server';
+import { initTRPC } from '@trpc/server';
 import * as trpcNext from '@trpc/server/adapters/next';
 
 export const createContext = async ({
@@ -95,7 +100,7 @@ export const createContext = async ({
   };
 };
 
-type Context = inferAsyncReturnType<typeof createContext>;
+type Context = Awaited<ReturnType<typeof createContext>>;
 
 export const t = initTRPC.context<Context>().create();
 
@@ -104,7 +109,7 @@ const waitFor = async (ms: number) =>
 
 export const appRouter = t.router({
   public: t.router({
-    slowQueryCached: t.procedure.query(async ({ ctx }) => {
+    slowQueryCached: t.procedure.query(async (opts) => {
       await waitFor(5000); // wait for 5s
 
       return {
@@ -122,7 +127,8 @@ export type AppRouter = typeof appRouter;
 export default trpcNext.createNextApiHandler({
   router: appRouter,
   createContext,
-  responseMeta({ ctx, paths, type, errors }) {
+  responseMeta(opts) {
+    const { ctx, paths, errors, type } = opts;
     // assuming you have all your public routes with the keyword `public` in them
     const allPublic = paths && paths.every((path) => path.includes('public'));
     // checking that no procedures errored
@@ -134,9 +140,12 @@ export default trpcNext.createNextApiHandler({
       // cache request for 1 day + revalidate once every second
       const ONE_DAY_IN_SECONDS = 60 * 60 * 24;
       return {
-        headers: {
-          'cache-control': `s-maxage=1, stale-while-revalidate=${ONE_DAY_IN_SECONDS}`,
-        },
+        headers: new Headers([
+          [
+            'cache-control',
+            `s-maxage=1, stale-while-revalidate=${ONE_DAY_IN_SECONDS}`,
+          ],
+        ]),
       };
     }
     return {};

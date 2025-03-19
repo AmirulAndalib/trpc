@@ -1,13 +1,32 @@
 /* eslint-disable @typescript-eslint/no-empty-function */
-import { routerToServerAndClientNew, waitError } from './___testHelpers';
-import { TRPCClientError } from '@trpc/client/src';
-import { initTRPC } from '@trpc/server/src';
-import { CreateHTTPContextOptions } from '@trpc/server/src/adapters/standalone';
-import { TRPCError } from '@trpc/server/src/error/TRPCError';
-import { getMessageFromUnknownError } from '@trpc/server/src/error/utils';
-import { OnErrorFunction } from '@trpc/server/src/internals/types';
+import http from 'http';
+import { routerToServerAndClientNew } from './___testHelpers';
+import { waitError } from '@trpc/server/__tests__/waitError';
+import type { TRPCLink } from '@trpc/client';
+import {
+  createTRPCClient,
+  httpBatchLink,
+  httpLink,
+  TRPCClientError,
+} from '@trpc/client';
+import { initTRPC, TRPCError } from '@trpc/server';
+import type { CreateHTTPContextOptions } from '@trpc/server/adapters/standalone';
+import type { HTTPErrorHandler } from '@trpc/server/http';
+import { observable } from '@trpc/server/observable';
+import { isObject } from '@trpc/server/unstable-core-do-not-import';
+import { konn } from 'konn';
 import fetch from 'node-fetch';
-import { ZodError, z } from 'zod';
+import { z, ZodError } from 'zod';
+
+function getMessageFromUnknownError(err: unknown, fallback: string): string {
+  if (typeof err === 'string') {
+    return err;
+  }
+  if (isObject(err) && typeof err['message'] === 'string') {
+    return err['message'];
+  }
+  return fallback;
+}
 
 test('basic', async () => {
   class MyError extends Error {
@@ -24,13 +43,13 @@ test('basic', async () => {
     }),
   });
 
-  const onError = jest.fn();
-  const { close, proxy } = routerToServerAndClientNew(router, {
+  const onError = vi.fn();
+  const { close, client } = routerToServerAndClientNew(router, {
     server: {
       onError,
     },
   });
-  const clientError = await waitError(proxy.err.query(), TRPCClientError);
+  const clientError = await waitError(client.err.query(), TRPCClientError);
   expect(clientError.shape.message).toMatchInlineSnapshot(`"woop"`);
   expect(clientError.shape.code).toMatchInlineSnapshot(`-32603`);
 
@@ -44,11 +63,11 @@ test('basic', async () => {
 
   expect(serverError.cause).toBeInstanceOf(MyError);
 
-  close();
+  await close();
 });
 
 test('input error', async () => {
-  const onError = jest.fn();
+  const onError = vi.fn();
   const t = initTRPC.create();
 
   const router = t.router({
@@ -56,23 +75,23 @@ test('input error', async () => {
       return null;
     }),
   });
-  const { close, proxy } = routerToServerAndClientNew(router, {
+  const { close, client } = routerToServerAndClientNew(router, {
     server: {
       onError,
     },
   });
   const clientError = await waitError(
-    proxy.err.mutate(1 as any),
+    client.err.mutate(1 as any),
     TRPCClientError,
   );
   expect(clientError.shape.message).toMatchInlineSnapshot(`
     "[
       {
-        \\"code\\": \\"invalid_type\\",
-        \\"expected\\": \\"string\\",
-        \\"received\\": \\"number\\",
-        \\"path\\": [],
-        \\"message\\": \\"Expected string, received number\\"
+        "code": "invalid_type",
+        "expected": "string",
+        "received": "number",
+        "path": [],
+        "message": "Expected string, received number"
       }
     ]"
   `);
@@ -88,11 +107,11 @@ test('input error', async () => {
 
   expect(serverError.cause).toBeInstanceOf(ZodError);
 
-  close();
+  await close();
 });
 
 test('unauthorized()', async () => {
-  const onError = jest.fn();
+  const onError = vi.fn();
   const t = initTRPC.create();
 
   const router = t.router({
@@ -100,29 +119,29 @@ test('unauthorized()', async () => {
       throw new TRPCError({ code: 'UNAUTHORIZED' });
     }),
   });
-  const { close, proxy } = routerToServerAndClientNew(router, {
+  const { close, client } = routerToServerAndClientNew(router, {
     server: {
       onError,
     },
   });
-  const clientError = await waitError(proxy.err.query(), TRPCClientError);
+  const clientError = await waitError(client.err.query(), TRPCClientError);
   expect(clientError).toMatchInlineSnapshot(`[TRPCClientError: UNAUTHORIZED]`);
   expect(onError).toHaveBeenCalledTimes(1);
   const serverError = onError.mock.calls[0]![0]!.error;
 
   expect(serverError).toBeInstanceOf(TRPCError);
 
-  close();
+  await close();
 });
 
-test('getMessageFromUnkownError()', () => {
+test('getMessageFromUnknownError()', () => {
   expect(getMessageFromUnknownError('test', 'nope')).toBe('test');
   expect(getMessageFromUnknownError(1, 'test')).toBe('test');
   expect(getMessageFromUnknownError({}, 'test')).toBe('test');
 });
 describe('formatError()', () => {
   test('simple', async () => {
-    const onError = jest.fn();
+    const onError = vi.fn();
     const t = initTRPC.create({
       errorFormatter({ shape, error }) {
         if (error.cause instanceof ZodError) {
@@ -145,13 +164,13 @@ describe('formatError()', () => {
       }),
     });
 
-    const { close, proxy } = routerToServerAndClientNew(router, {
+    const { close, client } = routerToServerAndClientNew(router, {
       server: {
         onError,
       },
     });
     const clientError = await waitError(
-      proxy.err.mutate(1 as any),
+      client.err.mutate(1 as any),
       TRPCClientError,
     );
     delete clientError.data.stack;
@@ -173,45 +192,45 @@ Object {
 }
 `);
     expect(clientError.shape).toMatchInlineSnapshot(`
-Object {
-  "code": -32600,
-  "data": Object {
-    "code": "BAD_REQUEST",
-    "errors": Array [
       Object {
-        "code": "invalid_type",
-        "expected": "string",
-        "message": "Expected string, received number",
-        "path": Array [],
-        "received": "number",
-      },
-    ],
-    "httpStatus": 400,
-    "path": "err",
-    "type": "zod",
-  },
-  "message": "[
-  {
-    \\"code\\": \\"invalid_type\\",
-    \\"expected\\": \\"string\\",
-    \\"received\\": \\"number\\",
-    \\"path\\": [],
-    \\"message\\": \\"Expected string, received number\\"
-  }
-]",
-}
-`);
+        "code": -32600,
+        "data": Object {
+          "code": "BAD_REQUEST",
+          "errors": Array [
+            Object {
+              "code": "invalid_type",
+              "expected": "string",
+              "message": "Expected string, received number",
+              "path": Array [],
+              "received": "number",
+            },
+          ],
+          "httpStatus": 400,
+          "path": "err",
+          "type": "zod",
+        },
+        "message": "[
+        {
+          "code": "invalid_type",
+          "expected": "string",
+          "received": "number",
+          "path": [],
+          "message": "Expected string, received number"
+        }
+      ]",
+      }
+    `);
     expect(onError).toHaveBeenCalledTimes(1);
     const serverError = onError.mock.calls[0]![0]!.error;
 
     expect(serverError.cause).toBeInstanceOf(ZodError);
 
-    close();
+    await close();
   });
 
   test('setting custom http response code', async () => {
     const TEAPOT_ERROR_CODE = 418;
-    const onError = jest.fn();
+    const onError = vi.fn();
     const t = initTRPC.create({
       errorFormatter: ({ error, shape }) => {
         if (!(error.cause instanceof ZodError)) {
@@ -241,12 +260,12 @@ Object {
     expect(res.ok).toBeFalsy();
     expect(res.status).toBe(TEAPOT_ERROR_CODE);
 
-    close();
+    await close();
   });
 
   test('do not override response status set by middleware or resolver', async () => {
     const TEAPOT_ERROR_CODE = 418;
-    const onError = jest.fn();
+    const onError = vi.fn();
     const t = initTRPC.context<CreateHTTPContextOptions>().create({});
     const middleware = t.middleware(({ ctx }) => {
       ctx.res.statusCode = TEAPOT_ERROR_CODE;
@@ -267,36 +286,36 @@ Object {
     expect(res.ok).toBeFalsy();
     expect(res.status).toBe(TEAPOT_ERROR_CODE);
 
-    close();
+    await close();
   });
 });
 
 test('make sure object is ignoring prototype', async () => {
-  const onError = jest.fn();
+  const onError = vi.fn();
   const t = initTRPC.create();
 
   const router = t.router({
     hello: t.procedure.query(() => 'there'),
   });
 
-  const { close, proxy } = routerToServerAndClientNew(router, {
+  const { close, client } = routerToServerAndClientNew(router, {
     server: {
       onError,
     },
   });
   const clientError = await waitError(
-    (proxy as any).toString.query(),
+    (client as any).toString.query(),
     TRPCClientError,
   );
   expect(clientError.shape.message).toMatchInlineSnapshot(
-    `"No \\"query\\"-procedure on path \\"toString\\""`,
+    `"No procedure found on path "toString""`,
   );
   expect(clientError.shape.code).toMatchInlineSnapshot(`-32004`);
   expect(onError).toHaveBeenCalledTimes(1);
   const serverError = onError.mock.calls[0]![0]!.error;
   expect(serverError.code).toMatchInlineSnapshot(`"NOT_FOUND"`);
 
-  close();
+  await close();
 });
 
 test('allow using built-in Object-properties', async () => {
@@ -306,11 +325,11 @@ test('allow using built-in Object-properties', async () => {
     hasOwnProperty: t.procedure.query(() => 'hasOwnPropertyValue'),
   });
 
-  const { close, proxy } = routerToServerAndClientNew(router);
+  const { close, client } = routerToServerAndClientNew(router);
 
-  expect(await proxy.toString.query()).toBe('toStringValue');
-  expect(await proxy.hasOwnProperty.query()).toBe('hasOwnPropertyValue');
-  close();
+  expect(await client.toString.query()).toBe('toStringValue');
+  expect(await client.hasOwnProperty.query()).toBe('hasOwnPropertyValue');
+  await close();
 });
 
 test('retain stack trace', async () => {
@@ -323,9 +342,9 @@ test('retain stack trace', async () => {
     }
   }
 
-  const onErrorFn: OnErrorFunction<any, any> = () => {};
+  const onErrorFn: HTTPErrorHandler<any, any> = () => {};
 
-  const onError = jest.fn(onErrorFn);
+  const onError = vi.fn(onErrorFn);
 
   const t = initTRPC.create();
   const router = t.router({
@@ -334,22 +353,22 @@ test('retain stack trace', async () => {
         throw new CustomError();
       }
 
-      return 'toSringValue';
+      return 'toStringValue';
     }),
   });
 
-  const { close, proxy } = routerToServerAndClientNew(router, {
+  const { close, client } = routerToServerAndClientNew(router, {
     server: {
       onError,
     },
   });
 
-  const clientError = await waitError(() => proxy.hello.query());
+  const clientError = await waitError(() => client.hello.query());
   expect(clientError.name).toBe('TRPCClientError');
 
   expect(onError).toHaveBeenCalledTimes(1);
 
-  const serverOnErrorOpts = onError.mock.calls[0]![0]!;
+  const serverOnErrorOpts = onError.mock.calls[0]![0];
   const serverError = serverOnErrorOpts.error;
   expect(serverError).toBeInstanceOf(TRPCError);
   expect(serverError.cause).toBeInstanceOf(CustomError);
@@ -360,5 +379,187 @@ test('retain stack trace', async () => {
   // first line of stack trace
   expect(stackParts[1]).toContain(__filename);
 
-  close();
+  await close();
+});
+
+describe('links have meta data about http failures', async () => {
+  type Handler = (opts: {
+    req: http.IncomingMessage;
+    res: http.ServerResponse;
+  }) => void;
+
+  function createServer(handler: Handler) {
+    const server = http.createServer((req, res) => {
+      handler({ req, res });
+    });
+    server.listen(0);
+
+    const port = (server.address() as any).port as number;
+
+    return {
+      url: `http://localhost:${port}`,
+      async close() {
+        await new Promise((resolve) => {
+          server.close(resolve);
+        });
+      },
+    };
+  }
+  const ctx = konn()
+    .beforeEach(() => {
+      return {
+        server: createServer(({ res }) => {
+          res.setHeader('content-type', 'application/json');
+          res.write(
+            JSON.stringify({
+              __error: {
+                foo: 'bar',
+              },
+            }),
+          );
+          res.end();
+        }),
+      };
+    })
+    .afterEach((opts) => {
+      opts.server?.close();
+    })
+    .done();
+  test('httpLink', async () => {
+    let meta = undefined as Record<string, unknown> | undefined;
+
+    const client: any = createTRPCClient<any>({
+      links: [
+        () => {
+          return ({ next, op }) => {
+            return observable((observer) => {
+              const unsubscribe = next(op).subscribe({
+                error(err) {
+                  observer.error(err);
+                  meta = err.meta;
+                },
+              });
+              return unsubscribe;
+            });
+          };
+        },
+        httpLink({
+          url: ctx.server.url,
+          fetch: fetch as any,
+        }),
+      ],
+    });
+
+    const error = await waitError(client.test.query(), TRPCClientError);
+    expect(error).toMatchInlineSnapshot(
+      `[TRPCClientError: Unable to transform response from server]`,
+    );
+
+    expect(meta).not.toBeUndefined();
+    expect(meta?.['responseJSON']).not.toBeFalsy();
+    expect(meta?.['responseJSON']).not.toBeFalsy();
+    expect(meta?.['responseJSON']).toMatchInlineSnapshot(`
+      Object {
+        "__error": Object {
+          "foo": "bar",
+        },
+      }
+    `);
+  });
+
+  test('httpBatchLink', async () => {
+    let meta = undefined as Record<string, unknown> | undefined;
+
+    const client: any = createTRPCClient<any>({
+      links: [
+        () => {
+          return ({ next, op }) => {
+            return observable((observer) => {
+              const unsubscribe = next(op).subscribe({
+                error(err) {
+                  observer.error(err);
+                  meta = err.meta;
+                },
+              });
+              return unsubscribe;
+            });
+          };
+        },
+        httpBatchLink({
+          url: ctx.server.url,
+          fetch: fetch as any,
+        }),
+      ],
+    });
+
+    const error = await waitError(client.test.query(), TRPCClientError);
+    expect(error).toMatchInlineSnapshot(
+      `[TRPCClientError: Unable to transform response from server]`,
+    );
+
+    expect(meta).not.toBeUndefined();
+    expect(meta?.['responseJSON']).not.toBeFalsy();
+    expect(meta?.['responseJSON']).not.toBeFalsy();
+    expect(meta?.['responseJSON']).toMatchInlineSnapshot(`
+      Object {
+        "__error": Object {
+          "foo": "bar",
+        },
+      }
+    `);
+  });
+
+  test('rethrow custom error', async () => {
+    type AppRouter = any;
+    class MyCustomError extends TRPCClientError<AppRouter> {
+      constructor(message: string) {
+        super(message);
+
+        Object.setPrototypeOf(this, new.target.prototype);
+      }
+    }
+
+    const customErrorLink: TRPCLink<AppRouter> = (_runtime) => (opts) =>
+      observable((observer) => {
+        const unsubscribe = opts.next(opts.op).subscribe({
+          error(err) {
+            if (
+              err.meta &&
+              isObject(err.meta['responseJSON']) &&
+              '__error' in err.meta['responseJSON'] // <----- you need to modify this
+            ) {
+              // custom error handling
+              observer.error(
+                new MyCustomError(
+                  `custom error: ${JSON.stringify(
+                    err.meta['responseJSON']['__error'],
+                  )}`,
+                ),
+              );
+            }
+            observer.error(err);
+          },
+        });
+        return unsubscribe;
+      });
+
+    const client: any = createTRPCClient<any>({
+      links: [
+        customErrorLink,
+        httpLink({
+          url: ctx.server.url,
+          fetch: fetch as any,
+        }),
+      ],
+    });
+
+    const error = await waitError(client.test.query());
+
+    expect(error).toMatchInlineSnapshot(
+      '[TRPCClientError: custom error: {"foo":"bar"}]',
+    );
+
+    expect(error).toBeInstanceOf(TRPCClientError);
+    expect(error).toBeInstanceOf(MyCustomError);
+  });
 });

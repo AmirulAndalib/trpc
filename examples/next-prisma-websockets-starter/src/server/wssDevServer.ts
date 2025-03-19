@@ -1,13 +1,9 @@
 import { createContext } from './context';
 import { appRouter } from './routers/_app';
 import { applyWSSHandler } from '@trpc/server/adapters/ws';
-import fetch from 'node-fetch';
-import ws from 'ws';
+import { WebSocketServer } from 'ws';
 
-if (!global.fetch) {
-  (global as any).fetch = fetch;
-}
-const wss = new ws.Server({
+const wss = new WebSocketServer({
   port: 3001,
 });
 const handler = applyWSSHandler({ wss, router: appRouter, createContext });

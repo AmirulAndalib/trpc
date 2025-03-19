@@ -1,9 +1,12 @@
 import Link from '@docusaurus/Link';
 import clsx from 'clsx';
-import React, { FC, ReactNode } from 'react';
+import { motion } from 'framer-motion';
+import type { FC, ReactNode } from 'react';
+import React from 'react';
 import Step1 from '../../docs/landing-intro/Step1.md';
 import Step2 from '../../docs/landing-intro/Step2.md';
 import Step3 from '../../docs/landing-intro/Step3.md';
+import { popIn } from '../animations/popIn';
 import { SectionTitle } from './SectionTitle';
 
 type StepProps = {
@@ -16,9 +19,15 @@ type StepProps = {
 
 const Step: FC<StepProps> = ({ num, title, description, code, rightSide }) => {
   return (
-    <div className="flex flex-col justify-between gap-12 lg:flex-row">
+    <motion.div
+      variants={popIn}
+      initial="hidden"
+      whileInView="visible"
+      viewport={{ once: true }}
+      className="flex flex-col justify-between gap-12 lg:flex-row"
+    >
       <div
-        className={clsx('flex-1 order-1 lg:order-[0]', {
+        className={clsx('order-1 flex-1 lg:order-none', {
           'lg:order-1': rightSide,
         })}
       >
@@ -26,16 +35,16 @@ const Step: FC<StepProps> = ({ num, title, description, code, rightSide }) => {
       </div>
       <div className="flex-1">
         <div className="flex flex-col justify-center gap-3 lg:flex-row lg:items-center lg:justify-start">
-          <div className="grid w-6 h-6 rounded-full dark:bg-primary-200 bg-primary place-items-center shrink-0">
-            <p className="font-bold dark:text-[#313131] text-white">{num}</p>
+          <div className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-primary dark:bg-primary-dark">
+            <p className="font-bold text-white dark:text-zinc-800">{num}</p>
           </div>
           <h2 className="text-xl font-bold lg:text-2xl">{title}</h2>
         </div>
-        <p className="mt-3 text-sm text-gray-600 dark:text-gray-400 md:text-base">
+        <p className="mt-3 text-sm text-zinc-600 dark:text-zinc-300 md:text-base">
           {description}
         </p>
       </div>
-    </div>
+    </motion.div>
   );
 };
 
@@ -105,7 +114,7 @@ export const QuickIntro: FC = () => {
         }
         description="It's quick and easy to get started with tRPC to build a typesafe API."
       />
-      <div className="flex flex-col gap-12 mt-6">
+      <div className="mt-8 flex flex-col gap-12 lg:mt-12 lg:gap-16">
         {steps.map((step, index) => (
           <Step key={index} num={index + 1} {...step} />
         ))}

@@ -1,7 +1,7 @@
 {
   "name": "@trpc/react-query",
-  "version": "10.10.0",
-  "description": "tRPC React lib",
+  "version": "10.45.1",
+  "description": "The tRPC React library",
   "author": "KATT",
   "license": "MIT",
   "main": "dist/index.js",
@@ -14,11 +14,13 @@
     "directory": "packages/react"
   },
   "scripts": {
+    "codegen:bigBoi": "tsx ../../scripts/generateBigBoi.ts",
+    "codegen-tests": "run-p codegen:*",
     "build": "rollup --config rollup.config.ts --configPlugin rollup-plugin-swc3",
     "dev": "pnpm build --watch",
-    "codegen:entrypoints": "tsx entrypoints.script.ts",
-    "lint": "eslint --ext \".js,.ts,.tsx\" --ignore-path ../../.gitignore --report-unused-disable-directives src",
-    "ts-watch": "tsc --project tsconfig.watch.json"
+    "codegen-entrypoints": "tsx entrypoints.script.ts",
+    "lint": "eslint --cache src",
+    "ts-watch": "tsc --watch"
   },
   "exports": {
     "./package.json": "./package.json",
@@ -27,10 +29,15 @@
       "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./ssg": {
-      "import": "./dist/ssg/index.mjs",
-      "require": "./dist/ssg/index.js",
-      "default": "./dist/ssg/index.js"
+    "./rsc": {
+      "import": "./dist/rsc.mjs",
+      "require": "./dist/rsc.js",
+      "default": "./dist/rsc.js"
+    },
+    "./server": {
+      "import": "./dist/server/index.mjs",
+      "require": "./dist/server/index.js",
+      "default": "./dist/server/index.js"
     },
     "./shared": {
       "import": "./dist/shared/index.mjs",
@@ -43,8 +50,11 @@
     "src",
     "README.md",
     "package.json",
-    "ssg",
-    "shared"
+    "rsc",
+    "server",
+    "shared",
+    "!**/*.test.*",
+    "!**/__tests__"
   ],
   "eslintConfig": {
     "rules": {
@@ -56,28 +66,42 @@
     }
   },
   "peerDependencies": {
-    "@tanstack/react-query": "^4.3.8",
-    "@trpc/client": "^10.8.0",
-    "@trpc/server": "^10.8.0",
-    "react": ">=16.8.0",
-    "react-dom": ">=16.8.0"
+    "@tanstack/react-query": "^5.67.1",
+    "@trpc/client": "workspace:*",
+    "@trpc/server": "^10.45.1",
+    "react": ">=18.2.0",
+    "react-dom": ">=18.2.0",
+    "typescript": ">=5.7.2"
   },
   "devDependencies": {
-    "@tanstack/react-query": "^4.3.8",
-    "@trpc/client": "^10.10.0",
-    "@trpc/server": "^10.10.0",
-    "@types/express": "^4.17.12",
-    "@types/node": "^18.7.20",
-    "eslint": "^8.30.0",
-    "express": "^4.17.1",
-    "next": "^13.0.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "rollup": "^2.79.1",
-    "tsx": "^3.9.0",
-    "zod": "^3.0.0"
+    "@tanstack/query-sync-storage-persister": "^5.66.0",
+    "@tanstack/react-query": "^5.67.1",
+    "@tanstack/react-query-persist-client": "^5.66.0",
+    "@testing-library/dom": "^10.0.0",
+    "@testing-library/jest-dom": "^6.0.0",
+    "@testing-library/react": "^16.1.0",
+    "@testing-library/user-event": "^14.4.3",
+    "@trpc/client": "workspace:*",
+    "@trpc/server": "^10.45.1",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.13.5",
+    "@types/react": "^19.0.0",
+    "eslint": "^9.21.0",
+    "express": "^5.0.0",
+    "next": "^15.1.7",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "rollup": "^4.34.8",
+    "tslib": "^2.8.1",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2",
+    "zod": "^3.24.2",
+    "zod-form-data": "^2.0.1"
   },
   "publishConfig": {
     "access": "public"
-  }
+  },
+  "funding": [
+    "https://trpc.io/sponsor"
+  ]
 }

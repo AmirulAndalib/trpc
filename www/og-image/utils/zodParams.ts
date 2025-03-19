@@ -6,7 +6,7 @@ type JsonValue = Primitives | JsonValue[] | { [key: string]: JsonValue };
 const jsonStr = z.string().transform((str, ctx) => {
   try {
     return JSON.parse(str) as JsonValue;
-  } catch (error) {
+  } catch {
     ctx.addIssue({ code: 'custom', message: 'Needs to be JSON' });
   }
 });
@@ -22,7 +22,7 @@ export function zodParams<TType>(schema: z.ZodType<TType>) {
 
       return querySchema.safeParse(obj);
     },
-    toSearchString: (obj: typeof schema['_input']) => {
+    toSearchString: (obj: (typeof schema)['_input']) => {
       schema.parse(obj);
       return `input=${encodeURIComponent(JSON.stringify(obj))}`;
     },
@@ -67,9 +67,13 @@ export const blogParams = zodParams(
         }).format(date),
       ),
     readingTimeInMinutes: z.number().positive(),
-    authorName: z.string(),
-    authorTitle: z.string(),
-    authorImg: z.string(),
+    authors: z.array(
+      z.object({
+        name: z.string(),
+        title: z.string(),
+        img: z.string(),
+      }),
+    ),
   }),
 );
 

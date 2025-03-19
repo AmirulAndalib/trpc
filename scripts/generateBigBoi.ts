@@ -55,22 +55,29 @@ function createRouter(routerName: string) {
   })`.trim();
 }
 
-const TEST_DIR = __dirname + '/../packages/tests/server/__generated__/bigBoi';
-fs.mkdirSync(TEST_DIR, { recursive: true });
+const TEST_DIRS = [
+  import.meta.dirname + '/../packages/tests/server/__generated__/bigBoi',
+  import.meta.dirname + '/../packages/react-query/test/__generated__/bigBoi',
+];
 
-const indexBuf: string[] = [];
-for (let i = 0; i < NUM_ROUTERS; i++) {
-  const routerName = `r${i}`;
-  indexBuf.push(routerName);
-  fs.writeFileSync(`${TEST_DIR}/${routerName}.ts`, createRouter(routerName));
-}
+for (const TEST_DIR of TEST_DIRS) {
+  fs.mkdirSync(TEST_DIR, { recursive: true });
 
-const trpcFile = `
+  console.log('Generating routers...', TEST_DIR);
+
+  const indexBuf: string[] = [];
+  for (let i = 0; i < NUM_ROUTERS; i++) {
+    const routerName = `r${i}`;
+    indexBuf.push(routerName);
+    fs.writeFileSync(`${TEST_DIR}/${routerName}.ts`, createRouter(routerName));
+  }
+
+  const trpcFile = `
 import { initTRPC } from '@trpc/server';
 
 export const t = initTRPC.create();
 `.trim();
-const indexFile = `
+  const indexFile = `
 import { t } from './_trpc';
 
 ${indexBuf.map((name) => `import { ${name} } from './${name}';`).join('\n')}
@@ -79,7 +86,8 @@ export const appRouter = t.router({
   ${indexBuf.join(',\n    ')}
 })
 
-`.trim();
+  `.trim();
 
-fs.writeFileSync(`${TEST_DIR}/_app.ts`, indexFile);
-fs.writeFileSync(`${TEST_DIR}/_trpc.ts`, trpcFile);
+  fs.writeFileSync(`${TEST_DIR}/_app.ts`, indexFile);
+  fs.writeFileSync(`${TEST_DIR}/_trpc.ts`, trpcFile);
+}

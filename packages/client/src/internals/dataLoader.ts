@@ -1,23 +1,18 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
-import { CancelFn, PromiseAndCancel } from '../links/types';
 
 type BatchItem<TKey, TValue> = {
   aborted: boolean;
   key: TKey;
-  resolve: (value: TValue) => void;
-  reject: (error: Error) => void;
+  resolve: ((value: TValue) => void) | null;
+  reject: ((error: Error) => void) | null;
   batch: Batch<TKey, TValue> | null;
 };
 type Batch<TKey, TValue> = {
   items: BatchItem<TKey, TValue>[];
-  cancel: CancelFn;
 };
-type BatchLoader<TKey, TValue> = {
+export type BatchLoader<TKey, TValue> = {
   validate: (keys: TKey[]) => boolean;
-  fetch: (keys: TKey[]) => {
-    promise: Promise<TValue[]>;
-    cancel: CancelFn;
-  };
+  fetch: (keys: TKey[]) => Promise<TValue[] | Promise<TValue>[]>;
 };
 
 /**
@@ -62,7 +57,7 @@ export function dataLoader<TKey, TValue>(
 
       if (item.aborted) {
         // Item was aborted before it was dispatched
-        item.reject(new Error('Aborted'));
+        item.reject?.(new Error('Aborted'));
         index++;
         continue;
       }
@@ -78,7 +73,7 @@ export function dataLoader<TKey, TValue>(
       }
 
       if (lastGroup.length === 0) {
-        item.reject(new Error('Input is too big for a single dispatch'));
+        item.reject?.(new Error('Input is too big for a single dispatch'));
         index++;
         continue;
       }
@@ -99,34 +94,45 @@ export function dataLoader<TKey, TValue>(
       }
       const batch: Batch<TKey, TValue> = {
         items,
-        cancel: throwFatalError,
       };
       for (const item of items) {
         item.batch = batch;
       }
-      const { promise, cancel } = batchLoader.fetch(
-        batch.items.map((_item) => _item.key),
-      );
-      batch.cancel = cancel;
+      const promise = batchLoader.fetch(batch.items.map((_item) => _item.key));
 
       promise
-        .then((result) => {
-          for (let i = 0; i < result.length; i++) {
-            const value = result[i]!;
-            const item = batch.items[i]!;
-            item.resolve(value);
+        .then(async (result) => {
+          await Promise.all(
+            result.map(async (valueOrPromise, index) => {
+              const item = batch.items[index]!;
+              try {
+                const value = await Promise.resolve(valueOrPromise);
+
+                item.resolve?.(value);
+              } catch (cause) {
+                item.reject?.(cause as Error);
+              }
+
+              item.batch = null;
+              item.reject = null;
+              item.resolve = null;
+            }),
+          );
+
+          for (const item of batch.items) {
+            item.reject?.(new Error('Missing result'));
             item.batch = null;
           }
         })
         .catch((cause) => {
           for (const item of batch.items) {
-            item.reject(cause);
+            item.reject?.(cause);
             item.batch = null;
           }
         });
     }
   }
-  function load(key: TKey): PromiseAndCancel<TValue> {
+  function load(key: TKey): Promise<TValue> {
     const item: BatchItem<TKey, TValue> = {
       aborted: false,
       key,
@@ -148,17 +154,8 @@ export function dataLoader<TKey, TValue>(
     if (!dispatchTimer) {
       dispatchTimer = setTimeout(dispatch);
     }
-    const cancel = () => {
-      item.aborted = true;
 
-      if (item.batch?.items.every((item) => item.aborted)) {
-        // All items in the batch have been cancelled
-        item.batch.cancel();
-        item.batch = null;
-      }
-    };
-
-    return { promise, cancel };
+    return promise;
   }
 
   return {

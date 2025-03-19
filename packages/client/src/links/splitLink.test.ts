@@ -1,16 +1,16 @@
 import { observable } from '@trpc/server/observable';
-import { splitLink } from '../';
-import { OperationLink, TRPCLink } from '../';
-import { AnyRouter } from '../../../server/src';
-import { createChain } from '../links/internals/createChain';
+import type { AnyRouter } from '@trpc/server/unstable-core-do-not-import';
+import { createChain } from './internals/createChain';
+import { splitLink } from './splitLink';
+import type { OperationLink, TRPCLink } from './types';
 
 test('splitLink', () => {
-  const wsLinkSpy = jest.fn();
+  const wsLinkSpy = vi.fn();
   const wsLink: TRPCLink<any> = () => () =>
     observable(() => {
       wsLinkSpy();
     });
-  const httpLinkSpy = jest.fn();
+  const httpLinkSpy = vi.fn();
   const httpLink: TRPCLink<any> = () => () =>
     observable(() => {
       httpLinkSpy();
@@ -34,11 +34,12 @@ test('splitLink', () => {
       path: '.',
       id: 0,
       context: {},
+      signal: null,
     },
   }).subscribe({});
   expect(httpLinkSpy).toHaveBeenCalledTimes(1);
   expect(wsLinkSpy).toHaveBeenCalledTimes(0);
-  jest.resetAllMocks();
+  vi.resetAllMocks();
 
   createChain({
     links,
@@ -48,6 +49,7 @@ test('splitLink', () => {
       path: '.',
       id: 0,
       context: {},
+      signal: null,
     },
   }).subscribe({});
   expect(httpLinkSpy).toHaveBeenCalledTimes(0);

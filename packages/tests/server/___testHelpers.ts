@@ -1,147 +1,74 @@
-import './___packages';
 import {
-  TRPCWebSocketClient,
-  WebSocketClientOptions,
-  createTRPCClientProxy,
-  createTRPCUntypedClient,
-  createWSClient,
-  httpBatchLink,
-} from '@trpc/client/src';
-import { WithTRPCConfig } from '@trpc/next/src';
-import { AnyRouter as AnyNewRouter } from '@trpc/server/src';
-import {
-  CreateHTTPHandlerOptions,
-  createHTTPServer,
-} from '@trpc/server/src/adapters/standalone';
-import {
-  WSSHandlerOptions,
-  applyWSSHandler,
-} from '@trpc/server/src/adapters/ws';
-import AbortController from 'abort-controller';
+  trpcServerResource,
+  type TRPCServerResourceOpts,
+} from '@trpc/server/__tests__/trpcServerResource';
+import type { TRPCWebSocketClient, WebSocketClientOptions } from '@trpc/client';
+import { createTRPCClient, createWSClient, httpBatchLink } from '@trpc/client';
+import type { WithTRPCConfig } from '@trpc/next';
+import type { AnyTRPCRouter } from '@trpc/server';
+import type { DataTransformerOptions } from '@trpc/server/unstable-core-do-not-import';
+import { EventSourcePolyfill, NativeEventSource } from 'event-source-polyfill';
 import fetch from 'node-fetch';
-import ws from 'ws';
+import { WebSocket } from 'ws';
 
-(global as any).fetch = fetch;
-(global as any).AbortController = AbortController;
-(global as any).WebSocket = ws;
-export function routerToServerAndClientNew<TRouter extends AnyNewRouter>(
+(global as any).EventSource = NativeEventSource || EventSourcePolyfill;
+// This is a hack because the `server.close()` times out otherwise ¯\_(ツ)_/¯
+globalThis.fetch = fetch as any;
+globalThis.WebSocket = WebSocket as any;
+
+export type CreateClientCallback<TRouter extends AnyTRPCRouter> = (opts: {
+  httpUrl: string;
+  wssUrl: string;
+  wsClient: TRPCWebSocketClient;
+  transformer?: DataTransformerOptions;
+}) => Partial<WithTRPCConfig<TRouter>>;
+
+interface RouterToServerAndClientNewOpts<TRouter extends AnyTRPCRouter>
+  extends TRPCServerResourceOpts<TRouter> {
+  wsClient?: Partial<WebSocketClientOptions>;
+  client?: Partial<WithTRPCConfig<TRouter>> | CreateClientCallback<TRouter>;
+  transformer?: DataTransformerOptions;
+}
+
+/**
+ * @deprecated Use `testServerAndClientResource` instead
+ */
+export function routerToServerAndClientNew<TRouter extends AnyTRPCRouter>(
   router: TRouter,
-  opts?: {
-    server?: Partial<CreateHTTPHandlerOptions<TRouter>>;
-    wssServer?: Partial<WSSHandlerOptions<TRouter>>;
-    wsClient?: Partial<WebSocketClientOptions>;
-    client?:
-      | Partial<WithTRPCConfig<TRouter>>
-      | ((opts: {
-          httpUrl: string;
-          wssUrl: string;
-          wsClient: TRPCWebSocketClient;
-        }) => Partial<WithTRPCConfig<AnyNewRouter>>);
-  },
+  opts?: RouterToServerAndClientNewOpts<TRouter>,
 ) {
-  // http
-  const httpServer = createHTTPServer({
-    router: router,
-    createContext: ({ req, res }) => ({ req, res }),
-    ...(opts?.server ?? {
-      batching: {
-        enabled: true,
-      },
-    }),
-  });
-  const { port: httpPort } = httpServer.listen(0);
-  const httpUrl = `http://localhost:${httpPort}`;
-
-  // wss
-  const wss = new ws.Server({ port: 0 });
-  const wssPort = (wss.address() as any).port as number;
-  const applyWSSHandlerOpts: WSSHandlerOptions<TRouter> = {
-    wss,
-    router,
-    createContext: ({ req, res }) => ({ req, res }),
-    ...((opts?.wssServer as any) ?? {}),
-  };
-  const wssHandler = applyWSSHandler(applyWSSHandlerOpts);
-  const wssUrl = `ws://localhost:${wssPort}`;
+  const serverResource = trpcServerResource(router, opts);
 
   // client
   const wsClient = createWSClient({
-    url: wssUrl,
+    url: serverResource.wssUrl,
     ...opts?.wsClient,
   });
   const trpcClientOptions = {
-    links: [httpBatchLink({ url: httpUrl })],
+    links: [
+      httpBatchLink({
+        url: serverResource.httpUrl,
+        transformer: opts?.transformer as any,
+      }),
+    ],
     ...(opts?.client
       ? typeof opts.client === 'function'
-        ? opts.client({ httpUrl, wssUrl, wsClient })
+        ? opts.client({
+            httpUrl: serverResource.httpUrl,
+            wssUrl: serverResource.wssUrl,
+            wsClient,
+          })
         : opts.client
       : {}),
   } as WithTRPCConfig<typeof router>;
 
-  const client = createTRPCUntypedClient<typeof router>(trpcClientOptions);
-  const proxy = createTRPCClientProxy<typeof router>(client);
-  return {
+  const client = createTRPCClient<typeof router>(trpcClientOptions);
+
+  const ctx = {
+    ...serverResource,
     wsClient,
     client,
-    proxy,
-    close: async () => {
-      await Promise.all([
-        new Promise((resolve) => httpServer.server.close(resolve)),
-        new Promise((resolve) => {
-          wss.clients.forEach((ws) => ws.close());
-          wss.close(resolve);
-        }),
-      ]);
-    },
-    router,
     trpcClientOptions,
-    httpPort,
-    wssPort,
-    httpUrl,
-    wssUrl,
-    applyWSSHandlerOpts,
-    wssHandler,
-    wss,
   };
+  return ctx;
 }
-
-export async function waitMs(ms: number) {
-  await new Promise<void>((resolve) => setTimeout(resolve, ms));
-}
-
-type Constructor<T extends object = object> = new (...args: any[]) => T;
-
-export async function waitError<TError extends Error = Error>(
-  /**
-   * Function callback or promise that you expect will throw
-   */
-  fnOrPromise: (() => Promise<unknown> | unknown) | Promise<unknown>,
-  /**
-   * Force error constructor to be of specific type
-   * @default Error
-   **/
-  errorConstructor?: Constructor<TError>,
-): Promise<TError> {
-  try {
-    if (typeof fnOrPromise === 'function') {
-      await fnOrPromise();
-    } else {
-      await fnOrPromise;
-    }
-  } catch (cause) {
-    expect(cause).toBeInstanceOf(Error);
-    if (errorConstructor) {
-      expect((cause as Error).name).toBe(errorConstructor.name);
-    }
-    return cause as TError;
-  }
-  throw new Error('Function did not throw');
-}
-
-export const ignoreErrors = async (fn: () => Promise<unknown> | unknown) => {
-  try {
-    await fn();
-  } catch {
-    // ignore
-  }
-};

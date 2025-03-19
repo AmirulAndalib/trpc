@@ -8,7 +8,7 @@ slug: /useInfiniteQuery
 :::info
 
 - Your procedure needs to accept a `cursor` input of `any` type
-- For more details on infinite queries read the [react-query docs](https://react-query.tanstack.com/reference/useInfiniteQuery)
+- For more details on infinite queries read the [react-query docs](https://tanstack.com/query/v3/docs/react/reference/useInfiniteQuery)
 - In this example we're using Prisma - see their docs on [cursor-based pagination](https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination)
 
 :::
@@ -18,6 +18,7 @@ slug: /useInfiniteQuery
 ```tsx title='server/routers/_app.ts'
 import * as trpc from '@trpc/server';
 import { Context } from './[trpc]';
+import { z } from 'zod';
 
 export const appRouter = trpc.router<Context>()
   .query('infinitePosts', {

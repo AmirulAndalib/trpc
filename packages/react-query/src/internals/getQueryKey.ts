@@ -1,18 +1,24 @@
+import { skipToken } from '@tanstack/react-query';
 import {
-  AnyMutationProcedure,
-  AnyQueryProcedure,
-  AnyRouter,
-  DeepPartial,
-  inferProcedureInput,
-} from '@trpc/server';
-import { DecorateProcedure, DecoratedProcedureRecord } from '../shared';
+  isObject,
+  type DeepPartial,
+} from '@trpc/server/unstable-core-do-not-import';
+import type { DecoratedMutation, DecoratedQuery } from '../createTRPCReact';
+import type { DecorateRouterRecord } from '../shared';
 
-export type QueryType = 'query' | 'infinite' | 'any';
+export type QueryType = 'any' | 'infinite' | 'query';
 
 export type TRPCQueryKey = [
-  string[],
+  readonly string[],
   { input?: unknown; type?: Exclude<QueryType, 'any'> }?,
 ];
+
+export type TRPCMutationKey = [readonly string[]]; // = [TRPCQueryKey[0]]
+
+type ProcedureOrRouter =
+  | DecoratedMutation<any>
+  | DecoratedQuery<any>
+  | DecorateRouterRecord<any, any>;
 
 /**
  * To allow easy interactions with groups of related queries, such as
@@ -20,7 +26,7 @@ export type TRPCQueryKey = [
  * storing in tanstack query.
  **/
 export function getQueryKeyInternal(
-  path: string[],
+  path: readonly string[],
   input: unknown,
   type: QueryType,
 ): TRPCQueryKey {
@@ -31,88 +37,102 @@ export function getQueryKeyInternal(
   // some parts of the path may be dot-separated, split them up
   const splitPath = path.flatMap((part) => part.split('.'));
 
-  if (!input && (!type || type === 'any'))
+  if (!input && (!type || type === 'any')) {
+    // this matches also all mutations (see `getMutationKeyInternal`)
+
     // for `utils.invalidate()` to match all queries (including vanilla react-query)
     // we don't want nested array if path is empty, i.e. `[]` instead of `[[]]`
     return splitPath.length ? [splitPath] : ([] as unknown as TRPCQueryKey);
+  }
+
+  if (
+    type === 'infinite' &&
+    isObject(input) &&
+    ('direction' in input || 'cursor' in input)
+  ) {
+    const {
+      cursor: _,
+      direction: __,
+      ...inputWithoutCursorAndDirection
+    } = input;
+    return [
+      splitPath,
+      {
+        input: inputWithoutCursorAndDirection,
+        type: 'infinite',
+      },
+    ];
+  }
   return [
     splitPath,
     {
-      ...(typeof input !== 'undefined' && { input: input }),
+      ...(typeof input !== 'undefined' &&
+        input !== skipToken && { input: input }),
       ...(type && type !== 'any' && { type: type }),
     },
   ];
 }
 
+export function getMutationKeyInternal(path: readonly string[]) {
+  return getQueryKeyInternal(path, undefined, 'any') as TRPCMutationKey;
+}
+
 type GetInfiniteQueryInput<
   TProcedureInput,
-  TInputWithoutCursor = Omit<TProcedureInput, 'cursor'>,
-> = keyof TInputWithoutCursor extends never
+  TInputWithoutCursorAndDirection = Omit<
+    TProcedureInput,
+    'cursor' | 'direction'
+  >,
+> = keyof TInputWithoutCursorAndDirection extends never
   ? undefined
-  : DeepPartial<TInputWithoutCursor> | undefined;
+  : DeepPartial<TInputWithoutCursorAndDirection> | undefined;
 
-type GetQueryProcedureInput<TProcedureInput> = TProcedureInput extends {
+/** @internal */
+export type GetQueryProcedureInput<TProcedureInput> = TProcedureInput extends {
   cursor?: any;
 }
   ? GetInfiniteQueryInput<TProcedureInput>
   : DeepPartial<TProcedureInput> | undefined;
 
-type GetQueryParams<
-  TProcedureOrRouter extends AnyQueryProcedure,
-  TProcedureInput = inferProcedureInput<TProcedureOrRouter>,
-> = TProcedureInput extends undefined
-  ? []
-  : [input?: GetQueryProcedureInput<TProcedureInput>, type?: QueryType];
-
-type GetParams<
-  TProcedureOrRouter extends
-    | AnyQueryProcedure
-    | AnyMutationProcedure
-    | AnyRouter,
-  TPath extends string,
-  TFlags,
-> = TProcedureOrRouter extends AnyQueryProcedure
-  ? [
-      procedureOrRouter: DecorateProcedure<TProcedureOrRouter, TFlags, TPath>,
-      ..._params: GetQueryParams<TProcedureOrRouter>,
-    ]
-  : TProcedureOrRouter extends AnyMutationProcedure
-  ? [procedureOrRouter: DecorateProcedure<TProcedureOrRouter, TFlags, TPath>]
-  : [
-      procedureOrRouter: DecoratedProcedureRecord<
-        TProcedureOrRouter['_def']['record'],
-        TFlags,
-        any
-      >,
-    ];
-
-type GetQueryKeyParams<
-  TProcedureOrRouter extends
-    | AnyQueryProcedure
-    | AnyMutationProcedure
-    | AnyRouter,
-  TPath extends string,
-  TFlags,
-> = GetParams<TProcedureOrRouter, TPath, TFlags>;
+type GetParams<TProcedureOrRouter extends ProcedureOrRouter> =
+  TProcedureOrRouter extends DecoratedQuery<infer $Def>
+    ? [input?: GetQueryProcedureInput<$Def['input']>, type?: QueryType]
+    : [];
 
 /**
  * Method to extract the query key for a procedure
  * @param procedureOrRouter - procedure or AnyRouter
  * @param input - input to procedureOrRouter
  * @param type - defaults to `any`
- * @link https://trpc.io/docs/getQueryKey
+ * @see https://trpc.io/docs/v11/getQueryKey
  */
-export function getQueryKey<
-  TProcedureOrRouter extends
-    | AnyQueryProcedure
-    | AnyMutationProcedure
-    | AnyRouter,
-  TPath extends string,
-  TFlags,
->(..._params: GetQueryKeyParams<TProcedureOrRouter, TPath, TFlags>) {
-  const [procedureOrRouter, input, type] = _params;
+export function getQueryKey<TProcedureOrRouter extends ProcedureOrRouter>(
+  procedureOrRouter: TProcedureOrRouter,
+  ..._params: GetParams<TProcedureOrRouter>
+) {
+  const [input, type] = _params;
+
   // @ts-expect-error - we don't expose _def on the type layer
   const path = procedureOrRouter._def().path as string[];
   const queryKey = getQueryKeyInternal(path, input, type ?? 'any');
   return queryKey;
+}
+
+// TODO: look over if we can't use a single type
+export type QueryKeyKnown<TInput, TType extends Exclude<QueryType, 'any'>> = [
+  string[],
+  { input?: GetQueryProcedureInput<TInput>; type: TType }?,
+];
+
+/**
+ * Method to extract the mutation key for a procedure
+ * @param procedure - procedure
+ * @see https://trpc.io/docs/v11/getQueryKey#mutations
+ */
+export function getMutationKey<TProcedure extends DecoratedMutation<any>>(
+  procedure: TProcedure,
+) {
+  // @ts-expect-error - we don't expose _def on the type layer
+  const path = procedure._def().path as string[];
+  return getMutationKeyInternal(path);
 }

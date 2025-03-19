@@ -3,7 +3,9 @@
     "yzhang.markdown-all-in-one",
     "esbenp.prettier-vscode",
     "dbaeumer.vscode-eslint",
-    "bungcip.better-toml",
-    "Orta.vscode-twoslash-queries"
-  ]
+    "tamasfe.even-better-toml",
+    "orta.vscode-twoslash-queries",
+    "yoavbls.pretty-ts-errors"
+  ],
+  "unwantedRecommendations": ["bungcip.better-toml", "biomejs.biome"]
 }

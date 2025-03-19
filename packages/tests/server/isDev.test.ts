@@ -1,6 +1,7 @@
-import { routerToServerAndClientNew, waitError } from './___testHelpers';
-import { TRPCClientError } from '@trpc/client/src';
-import { initTRPC } from '@trpc/server/src';
+import { routerToServerAndClientNew } from './___testHelpers';
+import { waitError } from '@trpc/server/__tests__/waitError';
+import { TRPCClientError } from '@trpc/client';
+import { initTRPC } from '@trpc/server';
 import { konn } from 'konn';
 
 const createTestContext = (opts: { isDev: boolean }) =>
@@ -31,7 +32,7 @@ describe('isDev:true', () => {
 
   test('prints stacks', async () => {
     const error = (await waitError(
-      () => ctx.proxy.failingMutation.mutate(),
+      () => ctx.client.failingMutation.mutate(),
       TRPCClientError,
     )) as TRPCClientError<typeof ctx.router>;
 
@@ -46,7 +47,7 @@ describe('isDev:false', () => {
 
   test('does not print stack', async () => {
     const error = (await waitError(
-      () => ctx.proxy.failingMutation.mutate(),
+      () => ctx.client.failingMutation.mutate(),
       TRPCClientError,
     )) as TRPCClientError<typeof ctx.router>;
 

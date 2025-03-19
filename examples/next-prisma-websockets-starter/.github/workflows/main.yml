@@ -2,6 +2,15 @@ name: E2E-testing
 on: [push]
 jobs:
   e2e:
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_DATABASE: trpcdb
+          POSTGRES_USER: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
     env:
       NODE_ENV: test
       NEXTAUTH_SECRET: supersecret
@@ -16,9 +25,9 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: pnpm/action-setup@v2.2.4
+      - uses: pnpm/action-setup@v2
         with:
-          version: 7.26.0
+          version: 8.5.1
 
       - name: Use Node ${{ matrix.node }}
         uses: actions/setup-node@v3
@@ -30,7 +39,7 @@ jobs:
         run: pnpm install
 
       - name: Install playwright
-        run: pnpm playwright install chromium
+        run: pnpm exec playwright install chromium
 
       - name: Next.js cache
         uses: actions/cache@v3
@@ -38,8 +47,11 @@ jobs:
           path: ${{ github.workspace }}/.next/cache
           key: ${{ runner.os }}-${{ runner.node }}-${{ hashFiles('**/pnpm-lock.yaml') }}-nextjs
 
+      - name: Setup Prisma
+        run: pnpm prebuild
+
       - name: Build and test
-        run: pnpm prep-sqlite && pnpm build-sqlite && pnpm test-start && pnpm test-dev
+        run: pnpm build && pnpm test-start && pnpm test-dev
 
       - name: Upload test results
         if: ${{ always() }}

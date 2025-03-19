@@ -1,5 +1,5 @@
 import Head from 'next/head';
-import { ReactNode } from 'react';
+import type { ReactNode } from 'react';
 
 type DefaultLayoutProps = { children: ReactNode };
 
@@ -11,7 +11,7 @@ export const DefaultLayout = ({ children }: DefaultLayoutProps) => {
         <link rel="icon" href="/favicon.ico" />
       </Head>
 
-      <main>{children}</main>
+      <main className="h-screen">{children}</main>
     </>
   );
 };

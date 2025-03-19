@@ -1,37 +1,123 @@
-import { AnyRouter } from '@trpc/server';
 import { observable } from '@trpc/server/observable';
+import type {
+  AnyClientTypes,
+  AnyRouter,
+} from '@trpc/server/unstable-core-do-not-import';
+import { transformResult } from '@trpc/server/unstable-core-do-not-import';
 import { TRPCClientError } from '../TRPCClientError';
+import type {
+  HTTPLinkBaseOptions,
+  HTTPResult,
+  Requester,
+} from './internals/httpUtils';
 import {
-  HTTPLinkOptions,
+  getUrl,
   httpRequest,
+  jsonHttpRequester,
   resolveHTTPLinkOptions,
 } from './internals/httpUtils';
-import { transformResult } from './internals/transformResult';
-import { TRPCLink } from './types';
+import {
+  isFormData,
+  isOctetType,
+  type HTTPHeaders,
+  type Operation,
+  type TRPCLink,
+} from './types';
 
-export function httpLink<TRouter extends AnyRouter>(
-  opts: HTTPLinkOptions,
+export type HTTPLinkOptions<TRoot extends AnyClientTypes> =
+  HTTPLinkBaseOptions<TRoot> & {
+    /**
+     * Headers to be set on outgoing requests or a callback that of said headers
+     * @see http://trpc.io/docs/client/headers
+     */
+    headers?:
+      | HTTPHeaders
+      | ((opts: { op: Operation }) => HTTPHeaders | Promise<HTTPHeaders>);
+  };
+
+const universalRequester: Requester = (opts) => {
+  if ('input' in opts) {
+    const { input } = opts;
+    if (isFormData(input)) {
+      if (opts.type !== 'mutation' && opts.methodOverride !== 'POST') {
+        throw new Error('FormData is only supported for mutations');
+      }
+
+      return httpRequest({
+        ...opts,
+        // The browser will set this automatically and include the boundary= in it
+        contentTypeHeader: undefined,
+        getUrl,
+        getBody: () => input,
+      });
+    }
+
+    if (isOctetType(input)) {
+      if (opts.type !== 'mutation' && opts.methodOverride !== 'POST') {
+        throw new Error('Octet type input is only supported for mutations');
+      }
+
+      return httpRequest({
+        ...opts,
+        contentTypeHeader: 'application/octet-stream',
+        getUrl,
+        getBody: () => input,
+      });
+    }
+  }
+
+  return jsonHttpRequester(opts);
+};
+
+/**
+ * @see https://trpc.io/docs/client/links/httpLink
+ */
+export function httpLink<TRouter extends AnyRouter = AnyRouter>(
+  opts: HTTPLinkOptions<TRouter['_def']['_config']['$types']>,
 ): TRPCLink<TRouter> {
   const resolvedOpts = resolveHTTPLinkOptions(opts);
-  return (runtime) =>
-    ({ op }) =>
-      observable((observer) => {
+  return () => {
+    return ({ op }) => {
+      return observable((observer) => {
         const { path, input, type } = op;
-        const { promise, cancel } = httpRequest({
+        /* istanbul ignore if -- @preserve */
+        if (type === 'subscription') {
+          throw new Error(
+            'Subscriptions are unsupported by `httpLink` - use `httpSubscriptionLink` or `wsLink`',
+          );
+        }
+
+        const request = universalRequester({
           ...resolvedOpts,
-          runtime,
           type,
           path,
           input,
+          signal: op.signal,
+          headers() {
+            if (!opts.headers) {
+              return {};
+            }
+            if (typeof opts.headers === 'function') {
+              return opts.headers({
+                op,
+              });
+            }
+            return opts.headers;
+          },
         });
-        promise
+        let meta: HTTPResult['meta'] | undefined = undefined;
+        request
           .then((res) => {
-            const transformed = transformResult(res.json, runtime);
+            meta = res.meta;
+            const transformed = transformResult(
+              res.json,
+              resolvedOpts.transformer.output,
+            );
 
             if (!transformed.ok) {
               observer.error(
                 TRPCClientError.from(transformed.error, {
-                  meta: res.meta,
+                  meta,
                 }),
               );
               return;
@@ -42,10 +128,14 @@ export function httpLink<TRouter extends AnyRouter>(
             });
             observer.complete();
           })
-          .catch((cause) => observer.error(TRPCClientError.from(cause)));
+          .catch((cause) => {
+            observer.error(TRPCClientError.from(cause, { meta }));
+          });
 
         return () => {
-          cancel();
+          // noop
         };
       });
+    };
+  };
 }

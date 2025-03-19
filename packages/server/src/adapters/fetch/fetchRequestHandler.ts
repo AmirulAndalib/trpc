@@ -1,15 +1,25 @@
-import { AnyRouter } from '../../core';
-import {
-  HTTPRequest,
-  ResolveHTTPRequestOptionsContextFn,
-} from '../../http/internals/types';
-import { resolveHTTPResponse } from '../../http/resolveHTTPResponse';
-import { FetchHandlerOptions } from './types';
+/**
+ * If you're making an adapter for tRPC and looking at this file for reference, you should import types and functions from `@trpc/server` and `@trpc/server/http`
+ *
+ * @example
+ * ```ts
+ * import type { AnyTRPCRouter } from '@trpc/server'
+ * import type { HTTPBaseHandlerOptions } from '@trpc/server/http'
+ * ```
+ */
+// @trpc/server
 
-export type FetchHandlerRequestOptions<TRouter extends AnyRouter> = {
-  req: Request;
-  endpoint: string;
-} & FetchHandlerOptions<TRouter>;
+import type { AnyRouter } from '../../@trpc/server';
+import type { ResolveHTTPRequestOptionsContextFn } from '../../@trpc/server/http';
+import { resolveResponse } from '../../@trpc/server/http';
+import type { FetchHandlerRequestOptions } from './types';
+
+const trimSlashes = (path: string): string => {
+  path = path.startsWith('/') ? path.slice(1) : path;
+  path = path.endsWith('/') ? path.slice(0, -1) : path;
+
+  return path;
+};
 
 export async function fetchRequestHandler<TRouter extends AnyRouter>(
   opts: FetchHandlerRequestOptions<TRouter>,
@@ -23,46 +33,48 @@ export async function fetchRequestHandler<TRouter extends AnyRouter>(
   };
 
   const url = new URL(opts.req.url);
-  const path = url.pathname.slice(opts.endpoint.length + 1);
-  const req: HTTPRequest = {
-    query: url.searchParams,
-    method: opts.req.method,
-    headers: Object.fromEntries(opts.req.headers),
-    body: await opts.req.text(),
-  };
 
-  const result = await resolveHTTPResponse({
-    req,
+  const pathname = trimSlashes(url.pathname);
+  const endpoint = trimSlashes(opts.endpoint);
+  const path = trimSlashes(pathname.slice(endpoint.length));
+
+  return await resolveResponse({
+    ...opts,
+    req: opts.req,
     createContext,
     path,
-    router: opts.router,
-    batching: opts.batching,
-    responseMeta: opts.responseMeta,
+    error: null,
     onError(o) {
       opts?.onError?.({ ...o, req: opts.req });
     },
+    responseMeta(data) {
+      const meta = opts.responseMeta?.(data);
+
+      if (meta?.headers) {
+        if (meta.headers instanceof Headers) {
+          for (const [key, value] of meta.headers.entries()) {
+            resHeaders.append(key, value);
+          }
+        } else {
+          /**
+           * @deprecated, delete in v12
+           */
+          for (const [key, value] of Object.entries(meta.headers)) {
+            if (Array.isArray(value)) {
+              for (const v of value) {
+                resHeaders.append(key, v);
+              }
+            } else if (typeof value === 'string') {
+              resHeaders.set(key, value);
+            }
+          }
+        }
+      }
+
+      return {
+        headers: resHeaders,
+        status: meta?.status,
+      };
+    },
   });
-
-  for (const [key, value] of Object.entries(result.headers ?? {})) {
-    /* istanbul ignore if  */
-    if (typeof value === 'undefined') {
-      continue;
-    }
-
-    if (typeof value === 'string') {
-      resHeaders.set(key, value);
-      continue;
-    }
-
-    for (const v of value) {
-      resHeaders.append(key, v);
-    }
-  }
-
-  const res = new Response(result.body, {
-    status: result.status,
-    headers: resHeaders,
-  });
-
-  return res;
 }

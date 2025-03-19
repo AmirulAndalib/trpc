@@ -1,60 +1,26 @@
-import {
-  AnyRouter,
-  ClientDataTransformerOptions,
-  CombinedDataTransformer,
-  DataTransformer,
-  DataTransformerOptions,
-  DefaultDataTransformer,
-} from '@trpc/server';
-import {
-  Unsubscribable,
+import type {
   inferObservableValue,
-  observableToPromise,
-  share,
+  Unsubscribable,
 } from '@trpc/server/observable';
-import { TRPCClientError } from '../TRPCClientError';
+import { observableToPromise, share } from '@trpc/server/observable';
+import type {
+  AnyRouter,
+  inferAsyncIterableYield,
+  InferrableClientTypes,
+  Maybe,
+  TypeError,
+} from '@trpc/server/unstable-core-do-not-import';
 import { createChain } from '../links/internals/createChain';
-import {
+import type { TRPCConnectionState } from '../links/internals/subscriptions';
+import type {
   OperationContext,
   OperationLink,
   TRPCClientRuntime,
   TRPCLink,
 } from '../links/types';
+import { TRPCClientError } from '../TRPCClientError';
 
-type CreateTRPCClientBaseOptions<TRouter extends AnyRouter> =
-  TRouter['_def']['_config']['transformer'] extends DefaultDataTransformer
-    ? {
-        /**
-         * Data transformer
-         *
-         * You must use the same transformer on the backend and frontend
-         * @link https://trpc.io/docs/data-transformers
-         **/
-        transformer?: 'You must set a transformer on the backend router';
-      }
-    : TRouter['_def']['_config']['transformer'] extends DataTransformerOptions
-    ? {
-        /**
-         * Data transformer
-         *
-         * You must use the same transformer on the backend and frontend
-         * @link https://trpc.io/docs/data-transformers
-         **/
-        transformer: TRouter['_def']['_config']['transformer'] extends CombinedDataTransformer
-          ? DataTransformerOptions
-          : TRouter['_def']['_config']['transformer'];
-      }
-    : {
-        /**
-         * Data transformer
-         *
-         * You must use the same transformer on the backend and frontend
-         * @link https://trpc.io/docs/data-transformers
-         **/
-        transformer?: ClientDataTransformerOptions;
-      };
-
-type TRPCType = 'subscription' | 'query' | 'mutation';
+type TRPCType = 'mutation' | 'query' | 'subscription';
 export interface TRPCRequestOptions {
   /**
    * Pass additional context to links
@@ -64,110 +30,69 @@ export interface TRPCRequestOptions {
 }
 
 export interface TRPCSubscriptionObserver<TValue, TError> {
-  onStarted: () => void;
-  onData: (value: TValue) => void;
+  onStarted: (opts: { context: OperationContext | undefined }) => void;
+  onData: (value: inferAsyncIterableYield<TValue>) => void;
   onError: (err: TError) => void;
   onStopped: () => void;
   onComplete: () => void;
+  onConnectionStateChange: (state: TRPCConnectionState<TError>) => void;
 }
 
 /** @internal */
-export type CreateTRPCClientOptions<TRouter extends AnyRouter> =
-  | CreateTRPCClientBaseOptions<TRouter> & {
-      links: TRPCLink<TRouter>[];
-    };
+export type CreateTRPCClientOptions<TRouter extends InferrableClientTypes> = {
+  links: TRPCLink<TRouter>[];
+  transformer?: TypeError<'The transformer property has moved to httpLink/httpBatchLink/wsLink'>;
+};
 
-/** @internal */
-export type UntypedClientProperties =
-  | 'links'
-  | 'runtime'
-  | 'requestId'
-  | '$request'
-  | 'requestAsPromise'
-  | 'query'
-  | 'mutation'
-  | 'subscription';
-
-export class TRPCUntypedClient<TRouter extends AnyRouter> {
-  private readonly links: OperationLink<AnyRouter>[];
+export class TRPCUntypedClient<TInferrable extends InferrableClientTypes> {
+  private readonly links: OperationLink<TInferrable>[];
   public readonly runtime: TRPCClientRuntime;
   private requestId: number;
 
-  constructor(opts: CreateTRPCClientOptions<TRouter>) {
+  constructor(opts: CreateTRPCClientOptions<TInferrable>) {
     this.requestId = 0;
 
-    function getTransformer(): DataTransformer {
-      const transformer = opts.transformer as
-        | ClientDataTransformerOptions
-        | undefined;
-      if (!transformer)
-        return {
-          serialize: (data) => data,
-          deserialize: (data) => data,
-        };
+    this.runtime = {};
 
-      if ('input' in transformer)
-        return {
-          serialize: transformer.input.serialize,
-          deserialize: transformer.output.deserialize,
-        };
-      return transformer;
-    }
-
-    this.runtime = {
-      transformer: getTransformer(),
-    };
     // Initialize the links
     this.links = opts.links.map((link) => link(this.runtime));
   }
 
-  private $request<TInput = unknown, TOutput = unknown>({
-    type,
-    input,
-    path,
-    context = {},
-  }: {
+  private $request<TInput = unknown, TOutput = unknown>(opts: {
     type: TRPCType;
     input: TInput;
     path: string;
     context?: OperationContext;
+    signal: Maybe<AbortSignal>;
   }) {
     const chain$ = createChain<AnyRouter, TInput, TOutput>({
       links: this.links as OperationLink<any, any, any>[],
       op: {
+        ...opts,
+        context: opts.context ?? {},
         id: ++this.requestId,
-        type,
-        path,
-        input,
-        context,
       },
     });
     return chain$.pipe(share());
   }
-  private requestAsPromise<TInput = unknown, TOutput = unknown>(opts: {
+
+  private async requestAsPromise<TInput = unknown, TOutput = unknown>(opts: {
     type: TRPCType;
     input: TInput;
     path: string;
     context?: OperationContext;
-    signal?: AbortSignal;
+    signal: Maybe<AbortSignal>;
   }): Promise<TOutput> {
-    const req$ = this.$request<TInput, TOutput>(opts);
-    type TValue = inferObservableValue<typeof req$>;
-    const { promise, abort } = observableToPromise<TValue>(req$);
+    try {
+      const req$ = this.$request<TInput, TOutput>(opts);
+      type TValue = inferObservableValue<typeof req$>;
 
-    const abortablePromise = new Promise<TOutput>((resolve, reject) => {
-      opts.signal?.addEventListener('abort', abort);
-
-      promise
-        .then((envelope) => {
-          resolve((envelope.result as any).data);
-        })
-        .catch((err) => {
-          reject(TRPCClientError.from(err));
-        });
-    });
-
-    return abortablePromise;
+      const envelope = await observableToPromise<TValue>(req$);
+      const data = (envelope.result as any).data;
+      return data;
+    } catch (err) {
+      throw TRPCClientError.from(err as Error);
+    }
   }
   public query(path: string, input?: unknown, opts?: TRPCRequestOptions) {
     return this.requestAsPromise<unknown, unknown>({
@@ -190,23 +115,40 @@ export class TRPCUntypedClient<TRouter extends AnyRouter> {
   public subscription(
     path: string,
     input: unknown,
-    opts: TRPCRequestOptions &
-      Partial<TRPCSubscriptionObserver<unknown, TRPCClientError<AnyRouter>>>,
+    opts: Partial<
+      TRPCSubscriptionObserver<unknown, TRPCClientError<AnyRouter>>
+    > &
+      TRPCRequestOptions,
   ): Unsubscribable {
     const observable$ = this.$request({
       type: 'subscription',
       path,
       input,
-      context: opts?.context,
+      context: opts.context,
+      signal: opts.signal,
     });
     return observable$.subscribe({
       next(envelope) {
-        if (envelope.result.type === 'started') {
-          opts.onStarted?.();
-        } else if (envelope.result.type === 'stopped') {
-          opts.onStopped?.();
-        } else {
-          opts.onData?.((envelope.result as any).data);
+        switch (envelope.result.type) {
+          case 'state': {
+            opts.onConnectionStateChange?.(envelope.result);
+            break;
+          }
+          case 'started': {
+            opts.onStarted?.({
+              context: envelope.context,
+            });
+            break;
+          }
+          case 'stopped': {
+            opts.onStopped?.();
+            break;
+          }
+          case 'data':
+          case undefined: {
+            opts.onData?.(envelope.result.data);
+            break;
+          }
         }
       },
       error(err) {

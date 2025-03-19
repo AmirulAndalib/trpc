@@ -1,6 +1,5 @@
 import { routerToServerAndClientNew } from './___testHelpers';
-import { initTRPC } from '@trpc/server/src';
-import fetch from 'node-fetch';
+import { initTRPC } from '@trpc/server';
 import { z } from 'zod';
 
 const factory = () => {
@@ -39,8 +38,13 @@ test('batching with raw batch', async () => {
       `${httpUrl}/myQuery?batch=1&input=${JSON.stringify({
         '0': { name: 'alexdotjs' },
       })}`,
+      {
+        headers: {
+          'content-type': 'application/json',
+        },
+      },
     );
-    const json = await res.json();
+    const json: any = await res.json();
 
     expect(json[0]).toHaveProperty('result');
     expect(json[0].result).toMatchInlineSnapshot(`
@@ -50,5 +54,5 @@ Object {
 `);
   }
 
-  close();
+  await close();
 });

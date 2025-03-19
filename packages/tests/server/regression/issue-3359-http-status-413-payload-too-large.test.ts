@@ -1,11 +1,11 @@
-import { waitError } from '../___testHelpers';
+import http from 'http';
+import { waitError } from '@trpc/server/__tests__/waitError';
 import {
-  TRPCClientError,
-  createTRPCProxyClient,
+  createTRPCClient,
   httpBatchLink,
   httpLink,
+  TRPCClientError,
 } from '@trpc/client';
-import http from 'http';
 import fetch from 'node-fetch';
 
 type Handler = (opts: {
@@ -14,7 +14,9 @@ type Handler = (opts: {
 }) => void;
 
 function createServer(handler: Handler) {
-  const server = http.createServer((req, res) => handler({ req, res }));
+  const server = http.createServer((req, res) => {
+    handler({ req, res });
+  });
   server.listen(0);
 
   const address = server.address();
@@ -24,7 +26,11 @@ function createServer(handler: Handler) {
 
   return {
     url: `http://localhost:${port}`,
-    close: () => server.close(),
+    async close() {
+      await new Promise((resolve) => {
+        server.close(resolve);
+      });
+    },
   };
 }
 
@@ -45,7 +51,7 @@ describe('server responds with 413 Payload Too Large', () => {
       res.end();
     });
 
-    const client: any = createTRPCProxyClient({
+    const client: any = createTRPCClient({
       links: [
         httpLink({
           url: server.url,
@@ -57,13 +63,13 @@ describe('server responds with 413 Payload Too Large', () => {
     const error = await waitError(client.test.query(), TRPCClientError);
 
     expect(error).toMatchInlineSnapshot(
-      `[TRPCClientError: Badly formatted response from server]`,
+      '[TRPCClientError: Unable to transform response from server]',
     );
     expect(error.message).toMatchInlineSnapshot(
-      `"Badly formatted response from server"`,
+      '"Unable to transform response from server"',
     );
 
-    server.close();
+    await server.close();
   });
 
   test('batchLink', async () => {
@@ -82,7 +88,7 @@ describe('server responds with 413 Payload Too Large', () => {
       res.end();
     });
 
-    const client: any = createTRPCProxyClient({
+    const client: any = createTRPCClient({
       links: [
         httpBatchLink({
           url: server.url,
@@ -93,12 +99,12 @@ describe('server responds with 413 Payload Too Large', () => {
 
     const error = await waitError(client.test.query(), TRPCClientError);
     expect(error).toMatchInlineSnapshot(
-      `[TRPCClientError: Badly formatted response from server]`,
+      '[TRPCClientError: Unable to transform response from server]',
     );
     expect(error.message).toMatchInlineSnapshot(
-      `"Badly formatted response from server"`,
+      '"Unable to transform response from server"',
     );
 
-    server.close();
+    await server.close();
   });
 });
